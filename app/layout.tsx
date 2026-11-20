@@ -49,6 +49,14 @@ export const metadata: Metadata = {
   description:
     "Wrong item delivered? Know exactly what to do next, with proof. ভুল পণ্য পেয়েছেন? জানুন এখন ঠিক কী করবেন।",
   applicationName: "AinPath",
+  icons: {
+    icon: [
+      { url: "/favicon.ico?v=2", sizes: "any" },
+      { url: "/icon.png?v=2", type: "image/png", sizes: "512x512" },
+    ],
+    shortcut: ["/favicon.ico?v=2"],
+    apple: [{ url: "/apple-icon.png?v=2", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
