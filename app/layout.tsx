@@ -48,6 +48,7 @@ export const metadata: Metadata = {
   title: "AinPath",
   description:
     "Wrong item delivered? Know exactly what to do next, with proof. ভুল পণ্য পেয়েছেন? জানুন এখন ঠিক কী করবেন।",
+  applicationName: "AinPath",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

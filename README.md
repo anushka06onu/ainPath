@@ -11,25 +11,27 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Bangla is the default; use **EN / বাং** to toggle.
+Open [http://localhost:3000](http://localhost:3000). English + dark are the defaults; use **EN / বাং** and the theme toggle as needed.
 
-Optional LLM (Groq). Without a key, intake and analysis fall back to deterministic rules:
+### Environment
+
+Copy `.env.example` → `.env.local` and fill real values (or set the same keys in Vercel):
 
 ```bash
-# .env.local
+DATABASE_URL=...
+DATABASE_URL_POOLED=...
 GROQ_API_KEY=...
-# optional:
-# GROQ_MODEL=llama-3.3-70b-versatile
+# optional: GROQ_MODEL=llama-3.3-70b-versatile
 ```
+
+Without `GROQ_API_KEY`, intake and analysis fall back to deterministic rules. Cases and uploads are stored in Neon Postgres (not local disk).
 
 ## Try the sample
 
 1. `/demo` → pick Daraz or Facebook + chat variant → **Open this case**
 2. Walk Story → Documents → Confirm → Run analysis
 3. Compare both sides → Roadmap (try **swap chat**) → Memo → Export
-4. Approve drafts, download HTML/Markdown, or delete the case
-
-Everything stays on this computer (`data/ainpath.db` + `data/files/`).
+4. Approve drafts, download the PDF report, or delete the case
 
 ## What it does
 
@@ -47,9 +49,11 @@ Everything stays on this computer (`data/ainpath.db` + `data/files/`).
 
 - Next.js App Router + TypeScript
 - Tailwind CSS v4 + shadcn/ui
-- SQLite (`node:sqlite`) + FTS5 corpus
+- Neon Postgres (cases + evidence files)
+- Pinned authority corpus in code
 - Rules engine always; Groq optional
 - `unpdf` + `tesseract.js` for extraction
+- PDFKit case reports
 
 ## Verify
 
