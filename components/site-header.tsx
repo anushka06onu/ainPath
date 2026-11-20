@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, X } from "lucide-react";
+import { Menu, Moon, Sun, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n/context";
 import { BrandMark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,12 @@ export function SiteHeader({
   const { resolvedTheme, setTheme } = useTheme();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const panelId = useId();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setOpen(false);
@@ -48,6 +54,98 @@ export function SiteHeader({
     };
   }, [open]);
 
+  const drawer =
+    mounted &&
+    createPortal(
+      <AnimatePresence>
+        {open ? (
+          <div className="fixed inset-0 z-[200] md:hidden" role="presentation">
+            <motion.button
+              type="button"
+              aria-label={t.nav.closeMenu}
+              className="absolute inset-0 bg-black/55"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setOpen(false)}
+            />
+            <motion.aside
+              id={panelId}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t.nav.menu}
+              className="absolute inset-y-0 left-0 flex h-dvh min-h-dvh w-[min(20rem,88vw)] flex-col border-r border-border bg-background text-foreground shadow-2xl"
+              style={{ backgroundColor: "var(--background)" }}
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.85 }}
+            >
+              <div
+                className="flex h-16 shrink-0 items-center justify-between border-b border-border px-5"
+                style={{ backgroundColor: "var(--background)" }}
+              >
+                <BrandMark size="sm" className="!text-foreground" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t.nav.closeMenu}
+                  onClick={() => setOpen(false)}
+                >
+                  <X className="size-5" />
+                </Button>
+              </div>
+
+              <nav
+                className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-4"
+                style={{ backgroundColor: "var(--background)" }}
+                aria-label="Mobile"
+              >
+                {NAV_LINKS.map((item, i) => (
+                  <motion.div
+                    key={item.href}
+                    initial={{ opacity: 0, x: -16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{
+                      delay: 0.06 + i * 0.045,
+                      duration: 0.28,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                  >
+                    <Link
+                      href={item.href}
+                      className="block rounded-xl px-4 py-3.5 text-base font-medium text-foreground hover:bg-muted"
+                      onClick={() => setOpen(false)}
+                    >
+                      {t.nav[item.key]}
+                    </Link>
+                  </motion.div>
+                ))}
+              </nav>
+
+              <div
+                className="mt-auto shrink-0 border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                style={{ backgroundColor: "var(--background)" }}
+              >
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/demo" />}
+                  size="lg"
+                  className="h-11 w-full"
+                  onClick={() => setOpen(false)}
+                >
+                  {t.nav.start}
+                </Button>
+              </div>
+            </motion.aside>
+          </div>
+        ) : null}
+      </AnimatePresence>,
+      document.body
+    );
+
   return (
     <header
       className={cn(
@@ -63,13 +161,14 @@ export function SiteHeader({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            className="h-9 px-2.5 text-sm font-medium md:hidden"
+            size="icon"
+            className="md:hidden"
             aria-expanded={open}
             aria-controls={panelId}
+            aria-label={t.nav.menu}
             onClick={() => setOpen(true)}
           >
-            {t.nav.menu}
+            <Menu className="size-5" />
           </Button>
           <BrandMark size="sm" className="!text-foreground sm:!text-xl" />
         </div>
@@ -118,77 +217,7 @@ export function SiteHeader({
         </div>
       </div>
 
-      <AnimatePresence>
-        {open ? (
-          <div className="fixed inset-0 z-50 md:hidden" role="presentation">
-            <motion.button
-              type="button"
-              aria-label={t.nav.closeMenu}
-              className="absolute inset-0 bg-foreground/40 backdrop-blur-[2px]"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              onClick={() => setOpen(false)}
-            />
-            <motion.aside
-              id={panelId}
-              role="dialog"
-              aria-modal="true"
-              aria-label={t.nav.menu}
-              className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col border-r border-border bg-background shadow-xl"
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.85 }}
-            >
-              <div className="flex h-16 items-center justify-between border-b border-border/80 px-5">
-                <BrandMark size="sm" className="!text-foreground" />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t.nav.closeMenu}
-                  onClick={() => setOpen(false)}
-                >
-                  <X className="size-4" />
-                </Button>
-              </div>
-
-              <nav className="flex flex-1 flex-col gap-1 px-3 py-4" aria-label="Mobile">
-                {NAV_LINKS.map((item, i) => (
-                  <motion.div
-                    key={item.href}
-                    initial={{ opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.06 + i * 0.045, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    <Link
-                      href={item.href}
-                      className="block rounded-xl px-4 py-3 text-base text-foreground hover:bg-muted/70"
-                      onClick={() => setOpen(false)}
-                    >
-                      {t.nav[item.key]}
-                    </Link>
-                  </motion.div>
-                ))}
-              </nav>
-
-              <div className="border-t border-border/80 p-4">
-                <Button
-                  nativeButton={false}
-                  render={<Link href="/demo" />}
-                  size="lg"
-                  className="h-11 w-full"
-                  onClick={() => setOpen(false)}
-                >
-                  {t.nav.start}
-                </Button>
-              </div>
-            </motion.aside>
-          </div>
-        ) : null}
-      </AnimatePresence>
+      {drawer}
     </header>
   );
 }
