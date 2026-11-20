@@ -33,7 +33,7 @@ const COPY: Record<UncertaintyKind, { en: string; bn: string }> = {
     bn: "আপলোডে লুকানো/নির্দেশমূলক লেখা আলাদা করা হয়েছে। শুধু অবিশ্বস্ত প্রমাণ হিসেবে রাখা।",
   },
   out_of_scope: {
-    en: "Outside prototype scope. Civil remedies (CRPA ss.66–67) or advocate referral may apply — AinPath will not force a Daraz/DNCRP step.",
+    en: "Outside prototype scope. Civil remedies (CRPA ss.66–67) or advocate referral may apply — AinPath will not force a marketplace or DNCRP step.",
     bn: "প্রোটোটাইপের আওতার বাইরে। দেওয়ানি প্রতিকার (ধারা ৬৬–৬৭) বা আইনজীবী রেফারেল হতে পারে।",
   },
 };

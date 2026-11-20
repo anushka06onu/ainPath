@@ -20,7 +20,7 @@ export function paymentOverlaySteps(c: CaseRecord): RouteStep[] {
       label: "source_confirmed",
       title: { en: "COD: keep courier & unboxing proof", bn: "সিওডি: কুরিয়ার ও আনবক্সিং প্রমাণ রাখুন" },
       detail: {
-        en: "No bank chargeback exists for cash on delivery. Keep airway bill, unboxing photos/video, and seller contact for Daraz/DNCRP routes.",
+        en: "No bank chargeback exists for cash on delivery. Keep airway bill, unboxing photos/video, and seller contact for marketplace or DNCRP routes.",
         bn: "ক্যাশ অন ডেলিভারিতে ব্যাংক চার্জব্যাক নেই। এয়ারওয়ে বিল, আনবক্সিং ছবি/ভিডিও ও বিক্রেতার যোগাযোগ রাখুন।",
       },
       attach: [ATT_PAY],

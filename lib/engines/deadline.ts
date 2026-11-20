@@ -125,7 +125,7 @@ export function buildDeadlineClocks(c: CaseRecord, now = new Date()): DeadlineCl
 
   // ——— DARAZ_RETURN_14D ———
   if (c.channel === "daraz") {
-    const name: Bi = { en: "Daraz return (14 days)", bn: "দারাজ রিটার্ন (১৪ দিন)" };
+    const name: Bi = { en: "Marketplace return (14 days)", bn: "মার্কেটপ্লেস রিটার্ন (১৪ দিন)" };
     if (alt && delivery?.value && alt.value !== delivery.value && delivery.status !== "confirmed") {
       clocks.push(conflictRefuse("DARAZ_RETURN_14D", name, "DARAZ-RETURN", delivery, alt));
     } else if (!triggerOk(delivery)) {
@@ -135,8 +135,8 @@ export function buildDeadlineClocks(c: CaseRecord, now = new Date()): DeadlineCl
           name,
           "DARAZ-RETURN",
           {
-            en: "Delivery date unconfirmed — Daraz 14-day window not calculated.",
-            bn: "ডেলিভারির তারিখ নিশ্চিত নয় — দারাজের ১৪ দিনের হিসাব স্থগিত।",
+            en: "Delivery date unconfirmed — marketplace 14-day window not calculated.",
+            bn: "ডেলিভারির তারিখ নিশ্চিত নয় — মার্কেটপ্লেসের ১৪ দিনের হিসাব স্থগিত।",
           },
           "delivery_date"
         )

@@ -39,7 +39,7 @@ function labelFor(c: CaseRecord, keys: FactKey[]): L {
 const ATT = {
   order: { en: "Order confirmation (screenshot or PDF)", bn: "অর্ডার কনফার্মেশন (স্ক্রিনশট বা পিডিএফ)" },
   delivery: { en: "Photos of the delivered box and item; courier record", bn: "পাওয়া বক্স ও পণ্যের ছবি; কুরিয়ারের রেকর্ড" },
-  reject: { en: "The rejection message from Daraz", bn: "দারাজের বাতিলের বার্তা" },
+  reject: { en: "The rejection message from the platform or seller", bn: "প্ল্যাটফর্ম বা বিক্রেতার বাতিলের বার্তা" },
   chat: { en: "The full chat with timestamps (not just one reply)", bn: "সময়সহ পুরো চ্যাট (শুধু একটি উত্তর নয়)" },
   pay: { en: "Payment record (bKash / Nagad / card / COD slip)", bn: "পেমেন্টের রেকর্ড (বিকাশ / নগদ / কার্ড / ক্যাশ অন ডেলিভারি স্লিপ)" },
   terms: { en: "The seller's Terms of Sale", bn: "বিক্রেতার বিক্রয়ের শর্তাবলি" },
@@ -73,8 +73,8 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
           label: "needs_review",
           title: { en: "Get local legal review", bn: "স্থানীয় আইনি পর্যালোচনা নিন" },
           detail: {
-            en: "AinPath currently covers wrong-item deliveries on Daraz and Facebook shops. Use the case summary to explain your situation to a consumer-rights volunteer or lawyer.",
-            bn: "আইনপথ এখন শুধু দারাজ ও ফেসবুক শপের ভুল পণ্য ডেলিভারি কভার করে। আপনার অবস্থা বোঝাতে কেস সারসংক্ষেপটি কোনো ভোক্তা-অধিকার স্বেচ্ছাসেবক বা আইনজীবীকে দেখান।",
+            en: "AinPath currently focuses on wrong-item deliveries from online marketplaces and Facebook shops. Use the case summary to explain your situation to a consumer-rights volunteer or lawyer.",
+            bn: "আইনপথ এখন প্রধানত অনলাইন মার্কেটপ্লেস ও ফেসবুক শপের ভুল পণ্য ডেলিভারি নিয়ে কাজ করে। আপনার অবস্থা বোঝাতে কেস সারসংক্ষেপটি কোনো ভোক্তা-অধিকার স্বেচ্ছাসেবক বা আইনজীবীকে দেখান।",
           },
           where: { label: { en: "DNCRP hotline 16121", bn: "ডিএনসিআরপি হটলাইন ১৬১২১" }, url: "https://www.dncrp.com/" },
           attach: [ATT.order, ATT.pay, ATT.chat],
@@ -112,9 +112,9 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
     const winNote: Bi | undefined =
       dd?.status === "confirmed" && left !== null
         ? left >= 0
-          ? { en: `Daraz's published window is 14 days from delivery: about ${left} day(s) left. Check your order page for the exact period.`, bn: `দারাজের প্রকাশিত সময়সীমা ডেলিভারি থেকে ১৪ দিন: প্রায় ${left} দিন বাকি। সঠিক সময় অর্ডার পেজে দেখুন।` }
-          : { en: `The published 14-day window ended about ${-left} day(s) ago. Say so honestly; Daraz may still review, and the order page shows what applies.`, bn: `প্রকাশিত ১৪ দিনের সময়সীমা প্রায় ${-left} দিন আগে শেষ হয়েছে। অর্ডার পেজে কী প্রযোজ্য তা দেখুন; দারাজ তবুও পর্যালোচনা করতে পারে।` }
-        : { en: "Daraz publishes a 14-day window from delivery; confirm your delivery date to see where you stand.", bn: "দারাজ ডেলিভারি থেকে ১৪ দিনের সময়সীমা প্রকাশ করে; আপনি কোথায় আছেন দেখতে ডেলিভারির তারিখ নিশ্চিত করুন।" };
+          ? { en: `Many marketplaces publish a 14-day return window from delivery: about ${left} day(s) left. Check your order page for the exact period.`, bn: `অনেক মার্কেটপ্লেসে ডেলিভারি থেকে ১৪ দিনের রিটার্ন সময়সীমা থাকে: প্রায় ${left} দিন বাকি। সঠিক সময় অর্ডার পেজে দেখুন।` }
+          : { en: `The published 14-day window ended about ${-left} day(s) ago. Say so honestly; the platform may still review, and the order page shows what applies.`, bn: `প্রকাশিত ১৪ দিনের সময়সীমা প্রায় ${-left} দিন আগে শেষ হয়েছে। অর্ডার পেজে কী প্রযোজ্য তা দেখুন; প্ল্যাটফর্ম তবুও পর্যালোচনা করতে পারে।` }
+        : { en: "Many marketplaces publish a 14-day window from delivery; confirm your delivery date to see where you stand.", bn: "অনেক মার্কেটপ্লেস ডেলিভারি থেকে ১৪ দিনের সময়সীমা প্রকাশ করে; আপনি কোথায় আছেন দেখতে ডেলিভারির তারিখ নিশ্চিত করুন।" };
 
     if (prior === "none" || prior === "") {
       steps.push({
@@ -122,12 +122,12 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
         dependsOn: ["prior_action", "delivery_date"],
         kind: "official",
         label: labelFor(c, ["prior_action", "delivery_date"]),
-        title: { en: "Open a return request on Daraz", bn: "দারাজে রিটার্নের অনুরোধ করুন" },
+        title: { en: "Open a return request on the marketplace", bn: "মার্কেটপ্লেসে রিটার্নের অনুরোধ করুন" },
         detail: {
-          en: "In the Daraz app: My Orders → Return/Refund → choose “I received the wrong item”. Add photos of the box label and the item.",
-          bn: "দারাজ অ্যাপে: My Orders → Return/Refund → “I received the wrong item” বেছে নিন। বক্সের লেবেল ও পণ্যের ছবি যোগ করুন।",
+          en: "In the marketplace app or site: My Orders → Return/Refund → choose “I received the wrong item”. Add photos of the box label and the item.",
+          bn: "মার্কেটপ্লেস অ্যাপ বা সাইটে: My Orders → Return/Refund → “I received the wrong item” বেছে নিন। বক্সের লেবেল ও পণ্যের ছবি যোগ করুন।",
         },
-        where: { label: { en: "Daraz returns information", bn: "দারাজ রিটার্ন তথ্য" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
+        where: { label: { en: "Marketplace returns help", bn: "মার্কেটপ্লেস রিটার্ন সহায়তা" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
         attach: [ATT.order, ATT.delivery],
         caveat: winNote,
         authorityIds: ["DARAZ-RETURN"],
@@ -140,12 +140,12 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
           dependsOn: ["prior_action", "rejection_reason", "chat_context"],
           kind: "official",
           label: labelFor(c, ["prior_action", "rejection_reason", "chat_context"]),
-          title: { en: "Send a follow-up to Daraz Customer Care with the chat", bn: "চ্যাটসহ দারাজ কাস্টমার কেয়ারে ফলো-আপ পাঠান" },
+          title: { en: "Send a follow-up to platform customer care with the chat", bn: "চ্যাটসহ প্ল্যাটফর্ম কাস্টমার কেয়ারে ফলো-আপ পাঠান" },
           detail: {
             en: "The rejection says you approved a substitute, but the message you replied to asked you to confirm an address. Quote the timestamped lines and ask for the rejection to be reviewed against them.",
             bn: "বাতিলের কারণে বলা হয়েছে আপনি বিকল্প মেনেছেন, কিন্তু আপনি যে বার্তার উত্তর দিয়েছেন সেটি ঠিকানা নিশ্চিত করতে বলেছিল। সময়সহ লাইনগুলো উদ্ধৃত করে পর্যালোচনার অনুরোধ করুন।",
           },
-          where: { label: { en: "Daraz Customer Care (in-app chat)", bn: "দারাজ কাস্টমার কেয়ার (অ্যাপে চ্যাট)" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
+          where: { label: { en: "Platform customer care (in-app chat)", bn: "প্ল্যাটফর্ম কাস্টমার কেয়ার (অ্যাপে চ্যাট)" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
           attach: [ATT.reject, ATT.chat, ATT.order, ATT.delivery],
           caveat: winNote,
           authorityIds: ["DARAZ-RETURN"],
@@ -188,10 +188,10 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
           label: labelFor(c, ["prior_action", "rejection_reason"]),
           title: { en: "Reply to the rejection with matching evidence", bn: "মিলিয়ে নেওয়া প্রমাণসহ বাতিলের জবাব দিন" },
           detail: {
-            en: "Compare the stated reason with your order and delivery records, then answer that specific reason through Daraz Customer Care.",
+            en: "Compare the stated reason with your order and delivery records, then answer that specific reason through platform customer care.",
             bn: "উল্লেখিত কারণ আপনার অর্ডার ও ডেলিভারি রেকর্ডের সঙ্গে মিলিয়ে নিন, তারপর সেই নির্দিষ্ট কারণের জবাব কাস্টমার কেয়ারের মাধ্যমে দিন।",
           },
-          where: { label: { en: "Daraz Customer Care", bn: "দারাজ কাস্টমার কেয়ার" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
+          where: { label: { en: "Platform customer care", bn: "প্ল্যাটফর্ম কাস্টমার কেয়ার" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
           attach: [ATT.reject, ATT.order, ATT.delivery],
           caveat: winNote,
           authorityIds: ["DARAZ-RETURN"],
@@ -203,9 +203,9 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
         dependsOn: ["prior_action"],
         kind: "info",
         label: labelFor(c, ["prior_action"]),
-        title: { en: "Raise it on Daraz first", bn: "আগে দারাজে জানান" },
-        detail: { en: "You contacted the seller. Also open a return request on Daraz so the platform has the case on record.", bn: "আপনি বিক্রেতার সঙ্গে যোগাযোগ করেছেন। প্ল্যাটফর্মে রেকর্ডের জন্য দারাজেও রিটার্নের অনুরোধ করুন।" },
-        where: { label: { en: "Daraz returns information", bn: "দারাজ রিটার্ন তথ্য" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
+        title: { en: "Raise it with the marketplace first", bn: "আগে মার্কেটপ্লেসে জানান" },
+        detail: { en: "You contacted the seller. Also open a return request on the marketplace so the platform has the case on record.", bn: "আপনি বিক্রেতার সঙ্গে যোগাযোগ করেছেন। প্ল্যাটফর্মে রেকর্ডের জন্য মার্কেটপ্লেসেও রিটার্নের অনুরোধ করুন।" },
+        where: { label: { en: "Marketplace returns help", bn: "মার্কেটপ্লেস রিটার্ন সহায়তা" }, url: "https://www.daraz.com.bd/helpcenter/return-policy/" },
         attach: [ATT.order, ATT.delivery, ATT.chat],
         caveat: winNote,
         authorityIds: ["DARAZ-RETURN"],
@@ -264,7 +264,7 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
     label: dl.state === "computed" ? "source_confirmed" : "depends_on_disputed",
     title: fbMain
       ? { en: "File a complaint with DNCRP", bn: "ডিএনসিআরপি-তে অভিযোগ দাখিল করুন" }
-      : { en: "If Daraz doesn't resolve it: complain to DNCRP", bn: "দারাজ সমাধান না করলে: ডিএনসিআরপি-তে অভিযোগ করুন" },
+      : { en: "If the marketplace does not resolve it: complain to DNCRP", bn: "মার্কেটপ্লেস সমাধান না করলে: ডিএনসিআরপি-তে অভিযোগ করুন" },
     detail: {
       en: "Call 16121 or register on the DNCRP complaint portal with a mobile number verified by OTP. Describe the seller and what happened, then attach your evidence. AinPath prepares the draft; you submit it. AinPath never auto-submits.",
       bn: "১৬১২১-এ ফোন করুন অথবা ওটিপি-যাচাইকৃত মোবাইল নম্বর দিয়ে ডিএনসিআরপি অভিযোগ পোর্টালে নিবন্ধন করুন। বিক্রেতা ও ঘটনা লিখে প্রমাণ সংযুক্ত করুন। খসড়া আইনপথ বানায়; জমা আপনি দেন। আইনপথ কখনো স্বয়ংক্রিয় জমা দেয় না।",
@@ -278,8 +278,8 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
   const headline: Bi =
     c.channel === "daraz"
       ? prior === "platform_return_rejected"
-        ? { en: "Your Daraz return was rejected. Here is the next step your evidence supports.", bn: "আপনার দারাজ রিটার্ন বাতিল হয়েছে। আপনার প্রমাণ অনুযায়ী পরবর্তী ধাপ এখানে।" }
-        : { en: "Start with Daraz's return route, then DNCRP if needed.", bn: "প্রথমে দারাজের রিটার্ন পথ, দরকার হলে ডিএনসিআরপি।" }
+        ? { en: "Your marketplace return was rejected. Here is the next step your evidence supports.", bn: "আপনার মার্কেটপ্লেস রিটার্ন বাতিল হয়েছে। আপনার প্রমাণ অনুযায়ী পরবর্তী ধাপ এখানে।" }
+        : { en: "Start with the marketplace return route, then DNCRP if needed.", bn: "প্রথমে মার্কেটপ্লেসের রিটার্ন পথ, দরকার হলে ডিএনসিআরপি।" }
       : { en: "This is a Facebook shop purchase: the route is the DNCRP complaint, once your proof is in order.", bn: "এটি ফেসবুক শপের কেনাকাটা: প্রমাণ গুছিয়ে ডিএনসিআরপি-তে অভিযোগই পথ।" };
 
   return {

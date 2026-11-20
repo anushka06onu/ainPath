@@ -1,12 +1,21 @@
 "use client";
 
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
 import { useTheme } from "next-themes";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n/context";
 import { BrandMark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+const NAV_LINKS = [
+  { href: "/#how", key: "how" as const },
+  { href: "/about", key: "sources" as const },
+  { href: "/demo", key: "demo" as const },
+];
 
 export function SiteHeader({
   className,
@@ -17,6 +26,27 @@ export function SiteHeader({
 }) {
   const { t, lang, setLang } = useI18n();
   const { resolvedTheme, setTheme } = useTheme();
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   return (
     <header
@@ -29,27 +59,31 @@ export function SiteHeader({
       )}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5 sm:px-8 lg:px-10">
-        <BrandMark size="sm" className="!text-foreground sm:!text-xl" />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 px-2.5 text-sm font-medium md:hidden"
+            aria-expanded={open}
+            aria-controls={panelId}
+            onClick={() => setOpen(true)}
+          >
+            {t.nav.menu}
+          </Button>
+          <BrandMark size="sm" className="!text-foreground sm:!text-xl" />
+        </div>
 
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
-          <Link
-            href="/#how"
-            className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-          >
-            {t.nav.how}
-          </Link>
-          <Link
-            href="/about"
-            className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-          >
-            {t.nav.sources}
-          </Link>
-          <Link
-            href="/demo"
-            className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-          >
-            {t.nav.demo}
-          </Link>
+          {NAV_LINKS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            >
+              {t.nav[item.key]}
+            </Link>
+          ))}
         </nav>
 
         <div className="flex items-center gap-2">
@@ -83,6 +117,78 @@ export function SiteHeader({
           </Button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {open ? (
+          <div className="fixed inset-0 z-50 md:hidden" role="presentation">
+            <motion.button
+              type="button"
+              aria-label={t.nav.closeMenu}
+              className="absolute inset-0 bg-foreground/40 backdrop-blur-[2px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              onClick={() => setOpen(false)}
+            />
+            <motion.aside
+              id={panelId}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t.nav.menu}
+              className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col border-r border-border bg-background shadow-xl"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.85 }}
+            >
+              <div className="flex h-16 items-center justify-between border-b border-border/80 px-5">
+                <BrandMark size="sm" className="!text-foreground" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t.nav.closeMenu}
+                  onClick={() => setOpen(false)}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+
+              <nav className="flex flex-1 flex-col gap-1 px-3 py-4" aria-label="Mobile">
+                {NAV_LINKS.map((item, i) => (
+                  <motion.div
+                    key={item.href}
+                    initial={{ opacity: 0, x: -16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.06 + i * 0.045, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <Link
+                      href={item.href}
+                      className="block rounded-xl px-4 py-3 text-base text-foreground hover:bg-muted/70"
+                      onClick={() => setOpen(false)}
+                    >
+                      {t.nav[item.key]}
+                    </Link>
+                  </motion.div>
+                ))}
+              </nav>
+
+              <div className="border-t border-border/80 p-4">
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/demo" />}
+                  size="lg"
+                  className="h-11 w-full"
+                  onClick={() => setOpen(false)}
+                >
+                  {t.nav.start}
+                </Button>
+              </div>
+            </motion.aside>
+          </div>
+        ) : null}
+      </AnimatePresence>
     </header>
   );
 }

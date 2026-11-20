@@ -12,7 +12,6 @@ export function SiteFooter() {
         <BrandMark className="!text-foreground" size="md" />
         <p>{t.footer.line1}</p>
         <p>{t.footer.line2}</p>
-        <p className="text-xs">{t.footer.ai}</p>
         <div className="flex flex-wrap gap-4 pt-2 text-xs">
           <Link href="/about" className="hover:text-foreground">
             {t.nav.sources}

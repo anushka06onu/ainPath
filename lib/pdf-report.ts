@@ -351,7 +351,7 @@ export async function buildCasePdf(
   const details = reporter ?? c.reporter;
   const channelLabel =
     c.channel === "daraz"
-      ? "Daraz"
+      ? T(lang, "Online marketplace", "অনলাইন মার্কেটপ্লেস")
       : c.channel === "facebook"
         ? T(lang, "Facebook shop", "ফেসবুক শপ")
         : T(lang, "Other", "অন্য");

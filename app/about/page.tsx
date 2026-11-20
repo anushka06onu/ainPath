@@ -45,8 +45,8 @@ const SOURCES = [
   },
   {
     id: "DARAZ-RETURN",
-    title: "Daraz return policy (pinned snapshot)",
-    note: "Marketplace return / rejection framing for demo",
+    title: "Marketplace return policy (sample snapshot)",
+    note: "Used by the sample marketplace fixture; verify live policy before filing",
     kind: "marketplace policy snapshot",
   },
 ];
@@ -114,7 +114,6 @@ export default function AboutPage() {
 
         <section className="mt-10 rounded-xl border border-dashed border-border bg-muted/30 p-5 text-sm text-muted-foreground">
           <p>{t.landing.trust.limit}</p>
-          <p className="mt-3">{t.footer.ai}</p>
         </section>
 
         <div className="mt-10">

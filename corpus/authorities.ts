@@ -288,18 +288,18 @@ export const AUTHORITIES: Authority[] = [
     strength: "PLATFORM_POLICY",
     hierarchyRank: 5,
     title: {
-      en: "Daraz Bangladesh — Returns policy (14 days)",
-      bn: "দারাজ বাংলাদেশ — রিটার্ন নীতি (১৪ দিন)",
+      en: "Marketplace returns policy (14 days) — sample snapshot",
+      bn: "মার্কেটপ্লেস রিটার্ন নীতি (১৪ দিন) — নমুনা স্ন্যাপশট",
     },
     section: "Return policy",
     jurisdiction: "Bangladesh (marketplace policy, not law)",
-    version: "Public Help Center (Oct 2025 14-day update noted)",
+    version: "Pinned sample for demo fixture (Oct 2025 14-day window noted)",
     dateChecked: CHECKED,
     url: "https://pages.daraz.com.bd/wow/i/bd/help-pages/return-policy",
     urlStatus: "OK",
     textKind: "paraphrase",
     passage:
-      "A buyer who receives a wrong, damaged, defective or incomplete product can raise a return request through Daraz within 14 days of delivery; the item should be unused and in its original packaging. Category exclusions (e.g. SIM-activated phones) may apply. Cannot waive CRPA statutory rights.",
+      "A buyer who receives a wrong, damaged, defective or incomplete product can raise a return request through the marketplace within 14 days of delivery; the item should be unused and in its original packaging. Category exclusions (e.g. SIM-activated phones) may apply. Cannot waive CRPA statutory rights. Sample snapshot for the demo — verify the live policy before citing.",
     neighbours: "Platform policy only — VERIFY current exclusions on order page.",
   },
   {

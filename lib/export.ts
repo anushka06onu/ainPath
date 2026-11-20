@@ -118,7 +118,7 @@ export function buyerDraft(c: CaseRecord, l: Lang, doRedact: boolean): Block[] {
   const prior = get("prior_action");
   const title =
     c.channel === "daraz" && prior === "platform_return_rejected"
-      ? T(l, "Follow-up to Daraz Customer Care", "দারাজ কাস্টমার কেয়ারে ফলো-আপ")
+      ? T(l, "Follow-up to platform customer care", "প্ল্যাটফর্ম কাস্টমার কেয়ারে ফলো-আপ")
       : c.channel === "daraz"
         ? T(l, "Return request note — wrong item delivered", "রিটার্ন অনুরোধের নোট — ভুল পণ্য ডেলিভারি")
         : T(l, "Complaint draft for DNCRP — wrong item delivered", "ডিএনসিআরপি-র জন্য অভিযোগের খসড়া — ভুল পণ্য ডেলিভারি");
@@ -134,7 +134,7 @@ export function buyerDraft(c: CaseRecord, l: Lang, doRedact: boolean): Block[] {
         `${T(l, "Name", "নাম")}: [${T(l, "your name", "আপনার নাম")}]`,
         `${T(l, "Mobile", "মোবাইল")}: [${T(l, "your mobile number", "আপনার মোবাইল নম্বর")}]`,
         `${T(l, "Seller", "বিক্রেতা")}: ${r(get("seller") || "—")}`,
-        `${T(l, "Where I bought", "যেখান থেকে কিনেছি")}: ${c.channel === "daraz" ? "Daraz Bangladesh" : c.channel === "facebook" ? T(l, "Facebook shop", "ফেসবুক শপ") : T(l, "Other", "অন্য")}`,
+        `${T(l, "Where I bought", "যেখান থেকে কিনেছি")}: ${c.channel === "daraz" ? T(l, "Online marketplace", "অনলাইন মার্কেটপ্লেস") : c.channel === "facebook" ? T(l, "Facebook shop", "ফেসবুক শপ") : T(l, "Other", "অন্য")}`,
         `${T(l, "Order date", "অর্ডারের তারিখ")}: ${get("order_date") || "—"}`,
         `${T(l, "Delivery date", "ডেলিভারির তারিখ")}: ${get("delivery_date") || "—"}`,
       ],
