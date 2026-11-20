@@ -1,0 +1,6 @@
+MESSENGER CHAT EXPORT — buyer and TechNest BD (FICTIONAL TEST DOCUMENT)
+[2026-10-30 18:02] TechNest BD: Your order for Aster X1 Smart Speaker — Model A is confirmed.
+[2026-10-30 18:04] Buyer: ok thanks
+[2026-10-30 20:30] TechNest BD: Sorry, Model A is out of stock. We can send Aster X1 Smart Speaker — Model B instead. Do you approve the substitute? / আপনি কি বিকল্প মডেল গ্রহণ করবেন?
+[2026-10-30 20:35] Buyer: yes
+[2026-11-08 10:40] TechNest BD: Your parcel has been handed to the courier today.

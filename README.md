@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AinPath (আইনপথ)
 
-## Getting Started
+Local demo that helps a Bangladeshi buyer who received the wrong product: tell the story → add documents → confirm facts → get a personal roadmap and a sourced reviewer memo.
 
-First, run the development server:
+**Not legal advice.** Demo uses fictional records. No partnership with Daraz, DNCRP, or any platform is claimed. Corpus passages marked `paraphrase` need a human reviewer before any live use.
+
+## Quick start
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Bangla is the default; use **EN / বাং** to toggle.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Optional LLM (Groq). Without a key, intake and analysis fall back to deterministic rules:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+# .env.local
+GROQ_API_KEY=...
+# optional:
+# GROQ_MODEL=llama-3.3-70b-versatile
+```
 
-## Learn More
+## Try the sample
 
-To learn more about Next.js, take a look at the following resources:
+1. `/demo` → pick Daraz or Facebook + chat variant → **Open this case**
+2. Walk Story → Documents → Confirm → Run analysis
+3. Compare both sides → Roadmap (try **swap chat**) → Memo → Export
+4. Approve drafts, download HTML/Markdown, or delete the case
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Everything stays on this computer (`data/ainpath.db` + `data/files/`).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## What it does
 
-## Deploy on Vercel
+| Screen | Job |
+|--------|-----|
+| Story | Channel + narrative → candidate facts |
+| Documents | Upload PDF/images/text; OCR correction; injection flag |
+| Confirm | Only route-changing facts; statuses নিশ্চিত / বিতর্কিত / পড়া যায়নি |
+| Compare | Buyer vs seller vs evidence; three terms risks |
+| Roadmap | Metro-line next steps; deadline under s.60 when trigger confirmed |
+| Memo | Page-linked findings + citation drawer |
+| Export | Approve → buyer draft, evidence index, reviewer memo |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js App Router + TypeScript
+- Tailwind CSS v4 + shadcn/ui
+- SQLite (`node:sqlite`) + FTS5 corpus
+- Rules engine always; Groq optional
+- `unpdf` + `tesseract.js` for extraction
+
+## Verify
+
+```bash
+npm test          # Vitest: rules + citation normalisation
+npm run eval      # 24 stub cases scaffold (schema check)
+npm run smoke     # needs `npm run dev` — API Daraz rehearsal
+npm run e2e       # Playwright happy path (starts dev server)
+npm run build
+```
+
+Smoke variants:
+
+```bash
+npm run smoke -- daraz address
+npm run smoke -- daraz substitution
+npm run smoke -- facebook address
+```
+
+## Scope honesty
+
+- Drafts only — nothing is auto-submitted
+- Sources are pinned with `dateChecked` / `version`; paraphrases are labelled
+- Prompt-like text in uploads is treated as evidence only
+- Light/dark theme; reduced-motion respected
+
+## One-page summary
+
+AinPath turns a wrong-item delivery into a confirmed case record, then shows (1) what to do next and (2) a memo a reviewer can check against the original pages and Bangladesh sources — all offline on your laptop.
