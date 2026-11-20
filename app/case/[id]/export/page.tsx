@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CaseLoading, CaseMissing } from "@/components/case-loading";
 import { StepNav } from "@/components/case-shell";
 import { Stamp } from "@/components/stamp";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { ReporterDetailsModal } from "@/components/reporter-details-modal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,7 +23,7 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
   const router = useRouter();
   const { data, setData, loading, error } = useCase(id);
   const [redact, setRedact] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"approve" | "delete" | null>(null);
   const [reporterOpen, setReporterOpen] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
 
@@ -30,27 +31,27 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
   if (error || !data) return <CaseMissing />;
 
   async function toggleApprove(approved: boolean) {
-    setBusy(true);
+    setBusy("approve");
     try {
       const c = await patchCase(id, { approved });
       setData(c);
     } catch {
       toast.error(t.common.error);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function purge() {
     if (!confirm(E.delConfirm)) return;
-    setBusy(true);
+    setBusy("delete");
     try {
       await deleteCase(id);
       toast.success(E.deleted);
       router.push("/");
     } catch {
       toast.error(t.common.error);
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -160,16 +161,16 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         {!approved ? (
-          <Button size="lg" className="h-11 px-5" disabled={busy || !hasAnalysis} onClick={() => void toggleApprove(true)}>
-            {E.approve}
+          <Button size="lg" className="h-11 px-5" disabled={!!busy || !hasAnalysis || pdfBusy} onClick={() => void toggleApprove(true)}>
+            {busy === "approve" ? <BusyInline label={E.approving} /> : E.approve}
           </Button>
         ) : (
           <>
             <Stamp tone="ok">
               {E.approvedAt} {data.approvedAt?.slice(0, 10)}
             </Stamp>
-            <Button variant="outline" disabled={busy} onClick={() => void toggleApprove(false)}>
-              {E.unapprove}
+            <Button variant="outline" disabled={!!busy || pdfBusy} onClick={() => void toggleApprove(false)}>
+              {busy === "approve" ? <BusyInline label={t.common.saving} /> : E.unapprove}
             </Button>
           </>
         )}
@@ -186,10 +187,10 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
             <Button
               size="lg"
               className="h-11 px-5"
-              disabled={!approved || pdfBusy}
+              disabled={!approved || pdfBusy || !!busy}
               onClick={() => setReporterOpen(true)}
             >
-              {E.pdfReport}
+              {pdfBusy ? <BusyInline label={E.reporterGenerating} /> : E.pdfReport}
             </Button>
           </div>
         </div>
@@ -256,10 +257,10 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
         <Button
           variant="destructive"
           className="mt-4"
-          disabled={busy}
+          disabled={!!busy || pdfBusy}
           onClick={() => void purge()}
         >
-          {E.del}
+          {busy === "delete" ? <BusyInline label={E.deleting} /> : E.del}
         </Button>
       </section>
 
@@ -269,9 +270,23 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
         open={reporterOpen}
         initial={data.reporter}
         busy={pdfBusy}
-        onOpenChange={setReporterOpen}
+        onOpenChange={(open) => {
+          if (!pdfBusy) setReporterOpen(open);
+        }}
         onSubmit={generatePdf}
       />
+
+      <BusyOverlay
+        open={pdfBusy}
+        title={E.reporterGenerating}
+        detail={E.reporterGeneratingD}
+      />
+      <BusyOverlay
+        open={busy === "approve"}
+        title={E.approving}
+        detail={t.common.saving}
+      />
+      <BusyOverlay open={busy === "delete"} title={E.deleting} />
     </div>
   );
 }

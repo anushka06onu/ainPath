@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -26,10 +27,10 @@ export function PrivacyDrawer({
   const { t } = useI18n();
   const C = t.consent;
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"withdraw" | "delete" | null>(null);
 
   async function withdraw() {
-    setBusy(true);
+    setBusy("withdraw");
     try {
       const c = await recordConsent(data.id, {
         processingMode: data.processingMode,
@@ -42,20 +43,20 @@ export function PrivacyDrawer({
     } catch {
       toast.error(t.common.error);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function purge() {
     const typed = window.prompt(`Type DELETE to confirm`);
     if (typed !== "DELETE") return;
-    setBusy(true);
+    setBusy("delete");
     try {
       await deleteCase(data.id);
       router.push("/");
     } catch {
       toast.error(t.common.error);
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -89,18 +90,24 @@ export function PrivacyDrawer({
             {data.retentionExpiresAt?.slice(0, 16) ?? "—"}
           </p>
           <div className="flex flex-col gap-2 pt-4">
-            <Button variant="outline" disabled={busy} onClick={downloadJson}>
+            <Button variant="outline" disabled={!!busy} onClick={downloadJson}>
               {C.exportJson}
             </Button>
-            <Button variant="outline" disabled={busy || !data.consent} onClick={() => void withdraw()}>
-              {C.withdraw}
+            <Button
+              variant="outline"
+              disabled={!!busy || !data.consent}
+              onClick={() => void withdraw()}
+            >
+              {busy === "withdraw" ? <BusyInline label={C.withdrawing} /> : C.withdraw}
             </Button>
-            <Button variant="destructive" disabled={busy} onClick={() => void purge()}>
-              {C.delete}
+            <Button variant="destructive" disabled={!!busy} onClick={() => void purge()}>
+              {busy === "delete" ? <BusyInline label={C.deleting} /> : C.delete}
             </Button>
           </div>
         </div>
       </SheetContent>
+      <BusyOverlay open={busy === "delete"} title={C.deleting} />
+      <BusyOverlay open={busy === "withdraw"} title={C.withdrawing} />
     </Sheet>
   );
 }

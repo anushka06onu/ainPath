@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useRef, useState } from "react";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { CaseLoading, CaseMissing } from "@/components/case-loading";
 import { StepNav } from "@/components/case-shell";
 import { PrivacyConsentModal } from "@/components/privacy-consent-modal";
@@ -137,7 +138,7 @@ export default function DocumentsPage({ params }: { params: Promise<{ id: string
           disabled={busy}
           onClick={() => inputRef.current?.click()}
         >
-          {busy ? D.uploading : D.choose}
+          {busy ? <BusyInline label={D.uploading} /> : D.choose}
         </Button>
         <input
           ref={inputRef}
@@ -177,6 +178,7 @@ export default function DocumentsPage({ params }: { params: Promise<{ id: string
       )}
 
       <StepNav caseId={id} back="story" next="confirm" />
+      <BusyOverlay open={busy} title={D.uploading} detail={D.uploadingD} />
     </div>
   );
 }

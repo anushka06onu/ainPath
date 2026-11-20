@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BusyInline } from "@/components/busy-overlay";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/context";
 import type { ProcessingMode } from "@/lib/types";
@@ -127,7 +128,7 @@ export function PrivacyConsentModal({
             disabled={busy || !purposes || !sensitive}
             onClick={() => void accept()}
           >
-            {C.accept}
+            {busy ? <BusyInline label={C.accepting} /> : C.accept}
           </Button>
           <Button
             size="lg"
@@ -136,7 +137,7 @@ export function PrivacyConsentModal({
             disabled={busy || !purposes || !sensitive}
             onClick={() => void accept(true)}
           >
-            {C.localOnly}
+            {busy ? <BusyInline label={C.accepting} /> : C.localOnly}
           </Button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { CaseLoading, CaseMissing } from "@/components/case-loading";
 import { StepNav } from "@/components/case-shell";
 import { Stamp } from "@/components/stamp";
@@ -97,9 +98,11 @@ export default function StoryPage({ params }: { params: Promise<{ id: string }> 
 
       <div className="mt-4">
         <Button disabled={busy || !text.trim()} onClick={() => void extract()}>
-          {busy ? S.reading : S.extract}
+          {busy ? <BusyInline label={S.reading} /> : S.extract}
         </Button>
       </div>
+
+      <BusyOverlay open={busy} title={S.reading} detail={S.readingD} />
 
       {data.facts.some((f) => f.value) && (
         <section className="mt-10">

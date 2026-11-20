@@ -3,6 +3,7 @@
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { CaseLoading, CaseMissing } from "@/components/case-loading";
 import { StepNav } from "@/components/case-shell";
 import { Stamp } from "@/components/stamp";
@@ -150,7 +151,7 @@ export default function RoadmapPage({ params }: { params: Promise<{ id: string }
           </span>
         </p>
         <Button size="sm" variant="outline" className="mt-3" disabled={busy} onClick={() => void doSwap()}>
-          {t.compare.swap}
+          {busy ? <BusyInline label={t.common.swapping} /> : t.compare.swap}
         </Button>
       </div>
 
@@ -256,6 +257,7 @@ export default function RoadmapPage({ params }: { params: Promise<{ id: string }
       </div>
 
       <StepNav caseId={id} back="compare" next="export" nextLabel={R.toExport} />
+      <BusyOverlay open={busy} title={t.common.swapping} detail={t.common.swappingD} />
     </div>
   );
 }

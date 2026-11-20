@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { CaseLoading, CaseMissing } from "@/components/case-loading";
 import { StepNav } from "@/components/case-shell";
 import { Stamp } from "@/components/stamp";
@@ -328,35 +329,9 @@ export default function ConfirmPage({ params }: { params: Promise<{ id: string }
         </section>
       )}
 
-      {busy && (
-        <div className="mt-8 rounded-xl border border-border bg-card p-4">
-          <p className="text-sm font-medium">{t.agents.title}</p>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {(["intake", "deadlines", "research", "review", "verify", "verify_p2"] as const).map((a) => (
-              <li
-                key={a}
-                className={cn(
-                  "rounded-lg border px-3 py-2 text-sm",
-                  agentStatus[a] === "running" && "border-primary bg-primary/5",
-                  (agentStatus[a] === "done" || agentStatus[a] === "fallback") &&
-                    "border-[color-mix(in_oklch,var(--ok)_40%,transparent)]"
-                )}
-              >
-                <span className="font-medium">{t.memo.agent[a]}</span>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {agentStatus[a]
-                    ? t.agents[agentStatus[a] as keyof typeof t.agents] ?? agentStatus[a]
-                    : t.agents.wait}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       <div className="mt-8 flex flex-wrap gap-3">
         <Button size="lg" className="h-11 px-5" disabled={busy} onClick={() => void run(data)}>
-          {busy ? C.running : C.run}
+          {busy ? <BusyInline label={C.running} /> : C.run}
         </Button>
       </div>
 
@@ -366,6 +341,30 @@ export default function ConfirmPage({ params }: { params: Promise<{ id: string }
         next={data.analysis ? "compare" : undefined}
         nextDisabled={!data.analysis}
       />
+
+      <BusyOverlay open={busy} title={C.running} detail={C.runningD}>
+        <p className="text-sm font-medium text-foreground">{t.agents.title}</p>
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          {(["intake", "deadlines", "research", "review", "verify", "verify_p2"] as const).map((a) => (
+            <li
+              key={a}
+              className={cn(
+                "rounded-lg border px-3 py-2 text-sm",
+                agentStatus[a] === "running" && "border-primary bg-primary/5",
+                (agentStatus[a] === "done" || agentStatus[a] === "fallback") &&
+                  "border-[color-mix(in_oklch,var(--ok)_40%,transparent)]"
+              )}
+            >
+              <span className="font-medium">{t.memo.agent[a]}</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {agentStatus[a]
+                  ? t.agents[agentStatus[a] as keyof typeof t.agents] ?? agentStatus[a]
+                  : t.agents.wait}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </BusyOverlay>
     </div>
   );
 }

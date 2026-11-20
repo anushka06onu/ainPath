@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { CaseLoading, CaseMissing } from "@/components/case-loading";
 import { StepNav } from "@/components/case-shell";
 import { Stamp } from "@/components/stamp";
@@ -16,7 +17,7 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
   const { t, bi } = useI18n();
   const C = t.compare;
   const { data, setData, loading, error } = useCase(id);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"swap" | "rerun" | null>(null);
 
   if (loading) return <CaseLoading />;
   if (error || !data) return <CaseMissing />;
@@ -26,7 +27,7 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
   const isAddr = chat === "address_confirmation";
 
   async function doSwap() {
-    setBusy(true);
+    setBusy("swap");
     try {
       const next = isAddr ? "substitution" : "address";
       await swapChat(id, next);
@@ -36,19 +37,19 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
     } catch {
       toast.error(t.common.error);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function rerun() {
-    setBusy(true);
+    setBusy("rerun");
     try {
       const c = await analyzeCase(id, () => {});
       setData(c);
     } catch {
       toast.error(t.common.error);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -59,11 +60,12 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
         <p className="mt-4 text-muted-foreground">{C.noAnalysis}</p>
         <div className="mt-6 flex gap-3">
           <Button render={<Link href={`/case/${id}/confirm`} />}>{C.goConfirm}</Button>
-          <Button variant="outline" disabled={busy} onClick={() => void rerun()}>
-            {t.confirm.run}
+          <Button variant="outline" disabled={!!busy} onClick={() => void rerun()}>
+            {busy === "rerun" ? <BusyInline label={t.common.reanalysing} /> : t.confirm.run}
           </Button>
         </div>
         <StepNav caseId={id} back="confirm" />
+        <BusyOverlay open={busy === "rerun"} title={t.common.reanalysing} detail={t.confirm.runningD} />
       </div>
     );
   }
@@ -116,8 +118,8 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
             {isAddr ? C.swapA : chat === "substitution_approval" ? C.swapB : chat || "—"}
           </span>
         </p>
-        <Button className="mt-4" variant="outline" disabled={busy} onClick={() => void doSwap()}>
-          {C.swap}
+        <Button className="mt-4" variant="outline" disabled={!!busy} onClick={() => void doSwap()}>
+          {busy === "swap" ? <BusyInline label={t.common.swapping} /> : C.swap}
         </Button>
       </section>
 
@@ -155,6 +157,16 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
       </section>
 
       <StepNav caseId={id} back="confirm" next="roadmap" />
+      <BusyOverlay
+        open={busy === "swap"}
+        title={t.common.swapping}
+        detail={t.common.swappingD}
+      />
+      <BusyOverlay
+        open={busy === "rerun"}
+        title={t.common.reanalysing}
+        detail={t.confirm.runningD}
+      />
     </div>
   );
 }

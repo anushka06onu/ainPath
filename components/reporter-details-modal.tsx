@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { BusyInline } from "@/components/busy-overlay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -140,7 +141,7 @@ export function ReporterDetailsModal({
               {t.common.close}
             </Button>
             <Button type="submit" disabled={busy}>
-              {E.reporterContinue}
+              {busy ? <BusyInline label={E.reporterGenerating} /> : E.reporterContinue}
             </Button>
           </DialogFooter>
         </form>

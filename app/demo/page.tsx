@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/context";
+import { BusyInline, BusyOverlay } from "@/components/busy-overlay";
 import { createCase } from "@/lib/client";
 import type { PaymentChannel } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -139,9 +140,15 @@ function DemoInner() {
 
           <div className="flex flex-wrap items-center gap-3 border-t border-border/60 pt-5">
             <Button size="lg" className="h-11 px-5" disabled={busy} onClick={() => void start()}>
-              {busy ? D.creating : D.go}
+              {busy ? <BusyInline label={D.creating} /> : D.go}
             </Button>
-            <Button variant="ghost" className="h-11" render={<Link href="/demo?own=1" />}>
+            <Button
+              variant="ghost"
+              className="h-11"
+              disabled={busy}
+              nativeButton={false}
+              render={<Link href="/demo?own=1" />}
+            >
               {D.own}
             </Button>
           </div>
@@ -150,15 +157,23 @@ function DemoInner() {
         <div className="mt-8 space-y-5">
           <p className="text-sm text-muted-foreground">{D.own}</p>
           <Button size="lg" className="h-11 px-5" disabled={busy} onClick={() => void start()}>
-            {busy ? D.creating : t.nav.start}
+            {busy ? <BusyInline label={D.creating} /> : t.nav.start}
           </Button>
           <div>
-            <Button variant="link" className="px-0" render={<Link href="/demo" />}>
+            <Button
+              variant="link"
+              className="px-0"
+              disabled={busy}
+              nativeButton={false}
+              render={<Link href="/demo" />}
+            >
               ← {D.title}
             </Button>
           </div>
         </div>
       )}
+
+      <BusyOverlay open={busy} title={D.creating} detail={D.creatingD} />
     </div>
   );
 }
@@ -168,7 +183,14 @@ export default function DemoPage() {
     <div className="flex min-h-full flex-col overflow-x-hidden">
       <SiteHeader />
       <main className="min-w-0 flex-1">
-        <Suspense fallback={<div className="p-8 text-center text-muted-foreground">…</div>}>
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+              <span className="inline-block size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              Loading…
+            </div>
+          }
+        >
           <DemoInner />
         </Suspense>
       </main>
