@@ -13,6 +13,9 @@ export function SiteFooter() {
         <p>{t.footer.line1}</p>
         <p>{t.footer.line2}</p>
         <div className="flex flex-wrap gap-4 pt-2 text-xs">
+          <Link href="/docs" className="hover:text-foreground">
+            {t.nav.docs}
+          </Link>
           <Link href="/about" className="hover:text-foreground">
             {t.nav.sources}
           </Link>
