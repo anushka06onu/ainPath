@@ -28,8 +28,10 @@ export function PrivacyConsentModal({
 
   if (!open) return null;
 
+  const ready = purposes && sensitive;
+
   async function accept(forceLocal?: boolean) {
-    if (!purposes || !sensitive) return;
+    if (!ready || busy) return;
     setBusy(true);
     try {
       await onAccept({
@@ -37,18 +39,21 @@ export function PrivacyConsentModal({
         retentionDays: days,
         sensitiveDataAck: true,
       });
+    } catch {
+      // Parent shows toast; keep modal open
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/40 p-4 sm:items-center">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-4 sm:items-center">
       <div
         role="dialog"
         aria-modal
         aria-labelledby="consent-title"
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-background p-6 shadow-lg"
+        style={{ backgroundColor: "var(--background)" }}
       >
         <h2 id="consent-title" className="font-serif text-2xl">
           {C.title}
@@ -125,7 +130,8 @@ export function PrivacyConsentModal({
           <Button
             size="lg"
             className="h-11"
-            disabled={busy || !purposes || !sensitive}
+            disabled={busy || !ready}
+            aria-disabled={busy || !ready}
             onClick={() => void accept()}
           >
             {busy ? <BusyInline label={C.accepting} /> : C.accept}
@@ -134,12 +140,16 @@ export function PrivacyConsentModal({
             size="lg"
             variant="outline"
             className="h-11"
-            disabled={busy || !purposes || !sensitive}
+            disabled={busy || !ready}
+            aria-disabled={busy || !ready}
             onClick={() => void accept(true)}
           >
             {busy ? <BusyInline label={C.accepting} /> : C.localOnly}
           </Button>
         </div>
+        {!ready ? (
+          <p className="mt-3 text-xs text-muted-foreground">{C.tickBoth}</p>
+        ) : null}
       </div>
     </div>
   );

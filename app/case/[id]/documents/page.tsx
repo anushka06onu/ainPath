@@ -100,10 +100,24 @@ export default function DocumentsPage({ params }: { params: Promise<{ id: string
   }
 
   const hasTerms = data.evidence.some((e) => e.kind === "terms");
+  /** Terms are optional; need at least one other case document to continue. */
+  const hasCaseEvidence = data.evidence.some((e) => e.kind !== "terms");
+  const canContinue = !needsConsent && hasCaseEvidence;
 
   return (
     <div>
-      <PrivacyConsentModal open={needsConsent} onAccept={onConsent} />
+      <PrivacyConsentModal
+        open={needsConsent}
+        onAccept={async (opts) => {
+          try {
+            await onConsent(opts);
+            toast.success(t.story.saved);
+          } catch {
+            toast.error(t.common.error);
+            throw new Error("consent-failed");
+          }
+        }}
+      />
       <h1 className="text-2xl sm:text-3xl">{D.title}</h1>
       <p className="mt-2 text-muted-foreground">{D.lead}</p>
       <p className="mt-2 text-xs text-muted-foreground">
@@ -150,8 +164,11 @@ export default function DocumentsPage({ params }: { params: Promise<{ id: string
         />
       </div>
 
-      {!hasTerms && data.evidence.length > 0 && (
-        <p className="mt-4 text-sm text-[var(--warn)]">{D.needTerms}</p>
+      {!needsConsent && !hasCaseEvidence && (
+        <p className="mt-4 text-sm text-[var(--warn)]">{D.needEvidence}</p>
+      )}
+      {!needsConsent && hasCaseEvidence && !hasTerms && (
+        <p className="mt-4 text-sm text-muted-foreground">{D.needTerms}</p>
       )}
 
       {data.evidence.length === 0 ? (
@@ -177,7 +194,7 @@ export default function DocumentsPage({ params }: { params: Promise<{ id: string
         </ul>
       )}
 
-      <StepNav caseId={id} back="story" next="confirm" />
+      <StepNav caseId={id} back="story" next="confirm" nextDisabled={!canContinue} />
       <BusyOverlay open={busy} title={D.uploading} detail={D.uploadingD} />
     </div>
   );

@@ -231,8 +231,8 @@ export default function ConfirmPage({ params }: { params: Promise<{ id: string }
   }
 
   async function run(view: CaseView) {
-    if (!view.evidence.some((e) => e.kind === "terms")) {
-      toast.error(C.errNeedTerms);
+    if (!view.evidence.length) {
+      toast.error(C.errNeedDocs);
       return;
     }
     setBusy(true);
