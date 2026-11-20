@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 export async function GET(req: Request, { params }: Ctx) {
   try {
-    const c = requireCase((await params).id);
+    const c = await requireCase((await params).id);
     if (!c.approvedAt) throw new HttpError(403, "not-approved");
     const u = new URL(req.url).searchParams;
     const type = u.get("type") ?? "report";

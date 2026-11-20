@@ -84,6 +84,13 @@ export async function patchCase(
     lang?: Lang;
     facts?: { key: FactKey; value?: string; status?: FactStatus; pick?: boolean }[];
     approved?: boolean;
+    reporter?: {
+      fullName: string;
+      mobile: string;
+      email?: string;
+      address?: string;
+      orderRef?: string;
+    };
   }
 ): Promise<CaseView> {
   return parse(

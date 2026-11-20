@@ -38,6 +38,7 @@ function writeLang(l: Lang) {
   }
   document.documentElement.lang = l;
   document.documentElement.setAttribute("data-lang", l);
+  document.title = DICTS[l].docTitle;
 }
 
 function readClientLang(fallback: Lang): Lang {
@@ -54,7 +55,7 @@ function readClientLang(fallback: Lang): Lang {
 
 export function I18nProvider({
   children,
-  initialLang = "bn",
+  initialLang = "en",
 }: {
   children: ReactNode;
   initialLang?: Lang;
@@ -68,6 +69,11 @@ export function I18nProvider({
     writeLang(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLang]);
+
+  // Keep the browser tab title in sync with language.
+  useLayoutEffect(() => {
+    document.title = DICTS[lang].docTitle;
+  }, [lang]);
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l);

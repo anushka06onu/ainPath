@@ -1,6 +1,0 @@
-DARAZ — RETURN REQUEST UPDATE (FICTIONAL TEST DOCUMENT)
-Return request: RR-TEST-2291
-Submitted: 2026-11-09
-Status: Rejected on 2026-11-12
-Reason: Customer approved a substitute item.
-Next: Please contact the seller for further queries.

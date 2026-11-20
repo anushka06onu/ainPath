@@ -5,11 +5,14 @@ import { saveCase } from "@/lib/db";
 import { looksLikeInjection } from "@/lib/extract";
 import type { EvidenceKind } from "@/lib/types";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const KINDS = ["terms", "order", "chat", "receipt", "rejection", "delivery", "other"] as const;
 
 export async function POST(req: Request, { params }: Ctx) {
   try {
-    const c = requireCase((await params).id);
+    const c = await requireCase((await params).id);
     if (!c.consent || c.consent.withdrawnAt) throw new HttpError(403, "consent-required");
     const form = await req.formData();
     const files = form.getAll("file").filter((f): f is File => f instanceof File);
@@ -21,7 +24,7 @@ export async function POST(req: Request, { params }: Ctx) {
       const buf = Buffer.from(await f.arrayBuffer());
       added.push(await addEvidence(c, { filename: f.name, mime: f.type, buf, kind }));
     }
-    saveCase(c);
+    await saveCase(c);
     return ok({ added: added.map((a) => a.id), case: toView(c) }, 201);
   } catch (e) {
     return fail(e);
@@ -31,10 +34,9 @@ export async function POST(req: Request, { params }: Ctx) {
 const Correct = z.object({ evidenceId: z.string(), page: z.number().int(), text: z.string().max(50000) });
 const Kind = z.object({ evidenceId: z.string(), kind: z.enum(KINDS) });
 
-/** Correct extracted text (OCR/PDF errors) or change an item's kind. */
 export async function PATCH(req: Request, { params }: Ctx) {
   try {
-    const c = requireCase((await params).id);
+    const c = await requireCase((await params).id);
     const body = await req.json();
     if ("kind" in body) {
       const k = Kind.parse(body);
@@ -51,7 +53,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       ev.corrected = true;
       ev.injectionFlag = ev.pages.some((p) => looksLikeInjection(p.text));
     }
-    saveCase(c);
+    await saveCase(c);
     return ok(toView(c));
   } catch (e) {
     if (e instanceof z.ZodError) return Response.json({ error: "bad-request" }, { status: 400 });
@@ -61,10 +63,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 export async function DELETE(req: Request, { params }: Ctx) {
   try {
-    const c = requireCase((await params).id);
+    const c = await requireCase((await params).id);
     const evId = new URL(req.url).searchParams.get("evidenceId") ?? "";
-    removeEvidence(c, evId);
-    saveCase(c);
+    await removeEvidence(c, evId);
+    await saveCase(c);
     return ok(toView(c));
   } catch (e) {
     return fail(e);

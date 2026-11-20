@@ -5,7 +5,7 @@ import { diffRuns } from "@/lib/engines/diff";
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
-    const c = requireCase(id);
+    const c = await requireCase(id);
     const url = new URL(req.url);
     let base = url.searchParams.get("base_run_id") ?? undefined;
     let target = url.searchParams.get("target_run_id") ?? undefined;

@@ -19,17 +19,30 @@ const Patch = z.object({
         key: z.enum(FACT_KEYS),
         value: z.string().max(300).optional(),
         status: z.enum(["candidate", "confirmed", "disputed", "unreadable"]).optional(),
-        /** "pick" resolves a date conflict: swap the competing date into place */
         pick: z.boolean().optional(),
       })
     )
     .optional(),
   approved: z.boolean().optional(),
+  reporter: z
+    .object({
+      fullName: z.string().trim().min(1).max(120),
+      mobile: z.string().trim().min(6).max(20),
+      email: z
+        .string()
+        .trim()
+        .max(120)
+        .refine((v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "bad-email")
+        .optional(),
+      address: z.string().trim().max(300).optional(),
+      orderRef: z.string().trim().max(80).optional(),
+    })
+    .optional(),
 });
 
 export async function GET(_r: Request, { params }: Ctx) {
   try {
-    return ok(toView(requireCase((await params).id)));
+    return ok(toView(await requireCase((await params).id)));
   } catch (e) {
     return fail(e);
   }
@@ -37,7 +50,7 @@ export async function GET(_r: Request, { params }: Ctx) {
 
 export async function PATCH(req: Request, { params }: Ctx) {
   try {
-    const c = requireCase((await params).id);
+    const c = await requireCase((await params).id);
     const p = Patch.parse(await req.json());
     if (p.story !== undefined) c.story = p.story;
     if (p.channel) c.channel = p.channel;
@@ -49,7 +62,6 @@ export async function PATCH(req: Request, { params }: Ctx) {
         c.facts.push(f);
       }
       if (u.pick && u.key === "delivery_date_alt") {
-        // the user chose the other date as the trigger: swap, keep the former value as the recorded alternative
         const main = c.facts.find((x) => x.key === "delivery_date");
         if (main) {
           const old = main.value;
@@ -67,13 +79,17 @@ export async function PATCH(req: Request, { params }: Ctx) {
       }
       if (u.status) f.status = u.status;
     }
-    // a confirmed trigger date resolves the date conflict
-    const dd = c.facts.find((x) => x.key === "delivery_date");
-    if (dd?.status === "confirmed") {
-      /* keep delivery_date_alt on record; the roadmap uses the confirmed trigger */
-    }
     if (p.approved !== undefined) c.approvedAt = p.approved ? new Date().toISOString() : undefined;
-    saveCase(c);
+    if (p.reporter) {
+      c.reporter = {
+        fullName: p.reporter.fullName,
+        mobile: p.reporter.mobile,
+        ...(p.reporter.email ? { email: p.reporter.email } : {}),
+        ...(p.reporter.address ? { address: p.reporter.address } : {}),
+        ...(p.reporter.orderRef ? { orderRef: p.reporter.orderRef } : {}),
+      };
+    }
+    await saveCase(c);
     return ok(toView(c));
   } catch (e) {
     if (e instanceof z.ZodError) return Response.json({ error: "bad-request" }, { status: 400 });
@@ -84,8 +100,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
 export async function DELETE(_r: Request, { params }: Ctx) {
   try {
     const { id } = await params;
-    requireCase(id);
-    deleteCase(id);
+    await requireCase(id);
+    await deleteCase(id);
     return ok({ deleted: true });
   } catch (e) {
     return fail(e);

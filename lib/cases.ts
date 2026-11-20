@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import crypto from "node:crypto";
 import type {
   CaseRecord,
@@ -11,7 +9,13 @@ import type {
   PaymentChannel,
   ProcessingMode,
 } from "./types";
-import { FILES_DIR, allAuthorities, getCase, saveCase } from "./db";
+import {
+  allAuthorities,
+  deleteFile,
+  getCase,
+  putFile,
+  saveCase,
+} from "./db";
 import { extractImage, extractPdf, extractPlain, looksLikeInjection } from "./extract";
 import { sha, llmInfo } from "./llm";
 import { buildRoadmap } from "./rules";
@@ -32,8 +36,8 @@ export function toView(c: CaseRecord): CaseView {
   return { ...c, roadmap: buildRoadmap(c), authorities: allAuthorities(), limits: limits(), llm: llmInfo() };
 }
 
-export function requireCase(id: string): CaseRecord {
-  const c = getCase(id);
+export async function requireCase(id: string): Promise<CaseRecord> {
+  const c = await getCase(id);
   if (!c) throw new HttpError(404, "case-not-found");
   return c;
 }
@@ -89,16 +93,21 @@ export async function addEvidence(
   }
 
   const id = "E" + newId().slice(0, 5);
-  const ext = path.extname(name) || (isPdf ? ".pdf" : ".txt");
-  const dir = path.join(FILES_DIR, c.id);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, id + ext), input.buf);
+  const mime = isPdf ? "application/pdf" : isImg ? input.mime || "image/png" : "text/plain";
+
+  await putFile({
+    caseId: c.id,
+    evidenceId: id,
+    filename: name,
+    mime,
+    data: input.buf,
+  });
 
   const ev: Evidence = {
     id,
     kind: input.kind ?? guessKind(name),
     filename: name,
-    mime: isPdf ? "application/pdf" : isImg ? input.mime || "image/png" : "text/plain",
+    mime,
     sha256: sha(input.buf),
     bytes: input.buf.length,
     pages,
@@ -110,18 +119,10 @@ export async function addEvidence(
   return ev;
 }
 
-export function filePathFor(c: CaseRecord, ev: Evidence): string | null {
-  const dir = path.join(FILES_DIR, c.id);
-  if (!fs.existsSync(dir)) return null;
-  const f = fs.readdirSync(dir).find((x) => x.startsWith(ev.id + "."));
-  return f ? path.join(dir, f) : null;
-}
-
-export function removeEvidence(c: CaseRecord, evId: string) {
+export async function removeEvidence(c: CaseRecord, evId: string) {
   const ev = c.evidence.find((e) => e.id === evId);
   if (!ev) return;
-  const p = filePathFor(c, ev);
-  if (p) fs.rmSync(p, { force: true });
+  await deleteFile(c.id, evId);
   c.evidence = c.evidence.filter((e) => e.id !== evId);
   for (const f of c.facts) f.evidenceIds = f.evidenceIds.filter((i) => i !== evId);
 }
@@ -156,8 +157,10 @@ export async function createCase(opts: {
     createdAt: now,
     updatedAt: now,
   };
+  // Persist shell first so evidence FK / stubs resolve cleanly
+  await saveCase(c);
+
   if (opts.fixture) {
-    // Fixtures auto-grant local consent so the demo path isn't blocked by the PDPA modal
     c.consent = {
       version: "pdpa2026-v1.0",
       processingMode: "LOCAL_OFFLINE",
@@ -174,18 +177,17 @@ export async function createCase(opts: {
   }
   const { facts } = await runIntake(c);
   c.facts = facts;
-  saveCase(c);
+  await saveCase(c);
   return c;
 }
 
 /** Replace the chat evidence with the other fixture variant (demo of evidence sensitivity). */
 export async function swapChat(c: CaseRecord, variant: ChatVariant) {
-  for (const e of c.evidence.filter((x) => x.kind === "chat")) removeEvidence(c, e.id);
+  for (const e of c.evidence.filter((x) => x.kind === "chat")) await removeEvidence(c, e.id);
   const ch = c.channel === "facebook" ? "facebook" : "daraz";
   const fx = buildFixture(ch, variant);
   const d = fx.docs.find((x) => x.kind === "chat")!;
   await addEvidence(c, { filename: d.name, mime: d.mime, buf: readFixtureFile(d), kind: "chat" });
-  // the chat reading is the only fact the new document changes; drop any stale confirmation of it
   const f = c.facts.find((x) => x.key === "chat_context");
   if (f) {
     f.value = "";

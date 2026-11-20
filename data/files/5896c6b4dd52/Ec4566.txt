@@ -1,9 +1,0 @@
-DARAZ BANGLADESH — ORDER CONFIRMATION (FICTIONAL TEST DOCUMENT)
-Order number: DZ-TEST-48151
-Order date: 2026-10-30
-Seller: TechNest BD
-Item ordered: Aster X1 Smart Speaker — Model A
-Quantity: 1
-Price: BDT 4,500
-Payment: Cash on delivery
-Delivery: Standard delivery

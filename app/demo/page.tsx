@@ -36,8 +36,9 @@ function DemoInner() {
         const c = await createCase({ lang, channel: "daraz", story: "", paymentChannel: pay });
         router.push(`/case/${c.id}/story`);
       }
-    } catch {
-      toast.error(t.common.error);
+    } catch (e) {
+      const msg = e instanceof Error && e.message && e.message !== "server-error" ? e.message : t.common.error;
+      toast.error(msg);
       setBusy(false);
     }
   }

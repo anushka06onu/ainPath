@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import path from "path";
-import type { Bi, CaseRecord, Lang } from "./types";
+import type { Bi, CaseRecord, Lang, ReporterDetails } from "./types";
 import { toView } from "./cases";
 import { factDisplay, redact } from "./export";
 
@@ -17,10 +17,11 @@ const INK = "#1a1d21";
 const MUTED = "#5c6570";
 const RULE = "#d8dce0";
 const ACCENT = "#2b6b57";
-const PAPER = "#ffffff";
 const MARGIN = 54;
-const PAGE_W = 595.28; // A4
+const PAGE_W = 595.28;
 const PAGE_H = 841.89;
+const FOOTER_Y = PAGE_H - 40;
+const CONTENT_BOTTOM = FOOTER_Y - 16;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
 const pick = (b: Bi, l: Lang) => b[l] || b.en;
@@ -71,10 +72,20 @@ async function collect(doc: PDFKit.PDFDocument): Promise<Buffer> {
   });
 }
 
+/** Absolute text that must never trigger PDFKit auto page-break. */
+function absText(
+  doc: PDFKit.PDFDocument,
+  str: string,
+  x: number,
+  y: number,
+  opts: { width: number; align?: "left" | "center" | "right" | "justify"; height?: number }
+) {
+  doc.text(str, x, y, { ...opts, lineBreak: false, height: opts.height ?? 14 });
+}
+
 class ReportWriter {
   doc: PDFKit.PDFDocument;
   lang: Lang;
-  page = 1;
   y = MARGIN;
   caseId: string;
 
@@ -84,40 +95,21 @@ class ReportWriter {
     this.caseId = caseId;
   }
 
-  footer() {
-    const label = T(this.lang, "AinPath case report", "আইনপথ কেস রিপোর্ট");
-    this.doc
-      .save()
-      .strokeColor(RULE)
-      .lineWidth(0.6)
-      .moveTo(MARGIN, PAGE_H - 36)
-      .lineTo(PAGE_W - MARGIN, PAGE_H - 36)
-      .stroke()
-      .restore();
-    this.doc
-      .font("body")
-      .fontSize(8)
-      .fillColor(MUTED)
-      .text(`${label} · ${this.caseId}`, MARGIN, PAGE_H - 28, {
-        width: CONTENT_W / 2,
-        lineBreak: false,
-      })
-      .text(String(this.page), MARGIN, PAGE_H - 28, {
-        width: CONTENT_W,
-        align: "right",
-        lineBreak: false,
-      });
-  }
-
-  newPage() {
-    this.footer();
+  sectionPage() {
     this.doc.addPage();
-    this.page += 1;
     this.y = MARGIN;
   }
 
   ensure(needed: number) {
-    if (this.y + needed > PAGE_H - 52) this.newPage();
+    if (this.y + needed > CONTENT_BOTTOM) {
+      this.doc.addPage();
+      this.y = MARGIN;
+    }
+  }
+
+  measure(str: string, width: number, size: number, font = "body") {
+    this.doc.font(font).fontSize(size);
+    return this.doc.heightOfString(str, { width, lineGap: 2 });
   }
 
   rule() {
@@ -142,20 +134,25 @@ class ReportWriter {
   }
 
   h1(s: string) {
-    this.ensure(40);
-    this.doc.font("displayBold").fontSize(20).fillColor(INK).text(s, MARGIN, this.y, {
+    const h = this.measure(s, CONTENT_W, 18, "displayBold");
+    this.ensure(h + 16);
+    this.doc.font("displayBold").fontSize(18).fillColor(INK).text(s, MARGIN, this.y, {
       width: CONTENT_W,
+      lineGap: 1,
+      height: h + 2,
     });
-    this.y = this.doc.y + 8;
+    this.y += h + 10;
   }
 
   h2(s: string) {
-    this.ensure(36);
-    this.y += 6;
-    this.doc.font("displayBold").fontSize(12).fillColor(INK).text(s, MARGIN, this.y, {
+    const h = this.measure(s, CONTENT_W, 11.5, "displayBold");
+    this.ensure(h + 24);
+    this.y += 8;
+    this.doc.font("displayBold").fontSize(11.5).fillColor(INK).text(s, MARGIN, this.y, {
       width: CONTENT_W,
+      height: h + 2,
     });
-    this.y = this.doc.y + 4;
+    this.y += h + 4;
     this.doc
       .strokeColor(RULE)
       .lineWidth(0.5)
@@ -166,81 +163,90 @@ class ReportWriter {
   }
 
   p(s: string, opts?: { muted?: boolean; size?: number }) {
-    this.ensure(28);
+    const size = opts?.size ?? 10;
+    const h = this.measure(s, CONTENT_W, size);
+    this.ensure(h + 12);
     this.doc
       .font("body")
-      .fontSize(opts?.size ?? 10)
+      .fontSize(size)
       .fillColor(opts?.muted ? MUTED : INK)
-      .text(s, MARGIN, this.y, { width: CONTENT_W, lineGap: 2 });
-    this.y = this.doc.y + 8;
+      .text(s, MARGIN, this.y, { width: CONTENT_W, lineGap: 2, height: h + 4 });
+    this.y += h + 10;
   }
 
   quote(s: string) {
     if (!s.trim()) return;
-    this.ensure(40);
-    const x = MARGIN + 10;
-    const w = CONTENT_W - 10;
+    const w = CONTENT_W - 12;
+    const h = this.measure(s, w, 9.5);
+    this.ensure(h + 18);
     const startY = this.y;
     this.doc
       .font("body")
       .fontSize(9.5)
       .fillColor(MUTED)
-      .text(s, x, this.y, { width: w, lineGap: 1.5 });
-    const endY = this.doc.y;
+      .text(s, MARGIN + 12, this.y, { width: w, lineGap: 1.5, height: h + 4 });
     this.doc
       .strokeColor(ACCENT)
       .lineWidth(2)
       .moveTo(MARGIN, startY - 1)
-      .lineTo(MARGIN, endY + 1)
+      .lineTo(MARGIN, startY + h + 2)
       .stroke();
-    this.y = endY + 12;
+    this.y = startY + h + 12;
   }
 
   bullets(items: string[]) {
     for (const item of items) {
-      this.ensure(22);
+      const h = this.measure(item, CONTENT_W - 14, 10);
+      this.ensure(h + 10);
       this.doc.font("body").fontSize(10).fillColor(INK);
-      this.doc.text("•", MARGIN, this.y, { width: 12, continued: false });
-      this.doc.text(item, MARGIN + 14, this.y, { width: CONTENT_W - 14, lineGap: 1.5 });
-      this.y = this.doc.y + 5;
+      absText(this.doc, "•", MARGIN, this.y, { width: 12 });
+      this.doc.text(item, MARGIN + 14, this.y, {
+        width: CONTENT_W - 14,
+        lineGap: 1.5,
+        height: h + 2,
+      });
+      this.y += h + 6;
     }
     this.y += 4;
   }
 
   metaRow(label: string, value: string) {
-    this.ensure(18);
+    const h = Math.max(
+      this.measure(label, 130, 9, "bodyBold"),
+      this.measure(value, CONTENT_W - 136, 9.5)
+    );
+    this.ensure(h + 8);
     this.doc.font("bodyBold").fontSize(9).fillColor(MUTED).text(label, MARGIN, this.y, {
       width: 130,
-      lineBreak: false,
+      height: h + 2,
     });
     this.doc.font("body").fontSize(9.5).fillColor(INK).text(value, MARGIN + 136, this.y, {
       width: CONTENT_W - 136,
+      height: h + 2,
     });
-    this.y = Math.max(this.y + 14, this.doc.y + 4);
+    this.y += h + 6;
   }
 
   table(head: string[], rows: string[][]) {
     const cols = head.length;
-    const widths = head.map((_, i) => {
-      if (cols === 2) return i === 0 ? 150 : CONTENT_W - 150;
-      if (cols === 3) return i === 0 ? 140 : (CONTENT_W - 140) / 2;
-      if (cols === 4) return [120, 160, 90, CONTENT_W - 370][i]!;
-      return CONTENT_W / cols;
-    });
+    const widths =
+      cols === 3
+        ? [140, (CONTENT_W - 140) / 2, (CONTENT_W - 140) / 2]
+        : cols === 4
+          ? [72, 210, 80, CONTENT_W - 362]
+          : head.map(() => CONTENT_W / cols);
 
     const drawRow = (cells: string[], header: boolean) => {
       this.doc.font(header ? "bodyBold" : "body").fontSize(8.5);
       const heights = cells.map((c, i) =>
-        this.doc.heightOfString(c || "—", {
-          width: widths[i]! - 10,
-        })
+        this.doc.heightOfString(c || "—", { width: widths[i]! - 10 })
       );
-      const h = Math.max(18, ...heights) + 8;
+      const h = Math.max(16, ...heights) + 8;
       this.ensure(h + 2);
-      let x = MARGIN;
       if (header) {
         this.doc.save().rect(MARGIN, this.y, CONTENT_W, h).fill("#f3f5f4").restore();
       }
+      let x = MARGIN;
       for (let i = 0; i < cells.length; i++) {
         this.doc
           .font(header ? "bodyBold" : "body")
@@ -248,6 +254,7 @@ class ReportWriter {
           .fillColor(header ? MUTED : INK)
           .text(cells[i] || "—", x + 5, this.y + 4, {
             width: widths[i]! - 10,
+            height: h - 4,
           });
         x += widths[i]!;
       }
@@ -264,17 +271,84 @@ class ReportWriter {
     for (const row of rows) drawRow(row, false);
     this.y += 10;
   }
+
+  step(n: number, title: string, detail?: string, url?: string, caveat?: string) {
+    const titleH = this.measure(title, CONTENT_W - 22, 10, "bodyBold");
+    const detailH = detail ? this.measure(detail, CONTENT_W - 22, 9) : 0;
+    const urlH = url ? this.measure(url, CONTENT_W - 22, 8.5) : 0;
+    const caveatH = caveat ? this.measure(caveat, CONTENT_W - 22, 8.5) : 0;
+    const total = titleH + detailH + urlH + caveatH + 16;
+    this.ensure(total);
+
+    this.doc.font("bodyBold").fontSize(10).fillColor(ACCENT);
+    absText(this.doc, String(n), MARGIN, this.y, { width: 18 });
+
+    this.doc
+      .font("bodyBold")
+      .fontSize(10)
+      .fillColor(INK)
+      .text(title, MARGIN + 22, this.y, { width: CONTENT_W - 22, height: titleH + 2 });
+    this.y += titleH + 2;
+
+    if (detail) {
+      this.doc
+        .font("body")
+        .fontSize(9)
+        .fillColor(MUTED)
+        .text(detail, MARGIN + 22, this.y, { width: CONTENT_W - 22, height: detailH + 2 });
+      this.y += detailH + 2;
+    }
+    if (url) {
+      this.doc
+        .font("body")
+        .fontSize(8.5)
+        .fillColor(ACCENT)
+        .text(url, MARGIN + 22, this.y, { width: CONTENT_W - 22, height: urlH + 2 });
+      this.y += urlH + 2;
+    }
+    if (caveat) {
+      this.doc
+        .font("body")
+        .fontSize(8.5)
+        .fillColor(MUTED)
+        .text(caveat, MARGIN + 22, this.y, { width: CONTENT_W - 22, height: caveatH + 2 });
+      this.y += caveatH + 2;
+    }
+    this.y += 10;
+  }
+}
+
+function paintFooters(doc: PDFKit.PDFDocument, lang: Lang, caseId: string) {
+  const range = doc.bufferedPageRange();
+  const label = T(lang, "AinPath case report", "আইনপথ কেস রিপোর্ট");
+  for (let i = 0; i < range.count; i++) {
+    doc.switchToPage(range.start + i);
+    doc
+      .strokeColor(RULE)
+      .lineWidth(0.6)
+      .moveTo(MARGIN, FOOTER_Y - 8)
+      .lineTo(PAGE_W - MARGIN, FOOTER_Y - 8)
+      .stroke();
+    doc.font("body").fontSize(8).fillColor(MUTED);
+    absText(doc, `${label} · ${caseId}`, MARGIN, FOOTER_Y, { width: CONTENT_W * 0.7 });
+    absText(doc, `${i + 1} / ${range.count}`, MARGIN, FOOTER_Y, {
+      width: CONTENT_W,
+      align: "right",
+    });
+  }
 }
 
 export async function buildCasePdf(
   c: CaseRecord,
   lang: Lang,
-  doRedact: boolean
+  doRedact: boolean,
+  reporter?: ReporterDetails | null
 ): Promise<Buffer> {
   const v = toView(c);
   const r = doRedact ? redact : (s: string) => s;
   const f = fontsFor(lang);
   const generated = new Date().toISOString().slice(0, 10);
+  const details = reporter ?? c.reporter;
   const channelLabel =
     c.channel === "daraz"
       ? "Daraz"
@@ -284,14 +358,16 @@ export async function buildCasePdf(
 
   const doc = new PDFDocument({
     size: "A4",
-    margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    // Zero margins so absolute footer drawing never auto-paginates
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    bufferPages: true,
+    autoFirstPage: true,
     info: {
       Title: `AinPath — ${c.id}`,
       Author: "AinPath",
       Subject: T(lang, "Case report", "কেস রিপোর্ট"),
       Creator: "AinPath",
     },
-    autoFirstPage: true,
   });
   registerFonts(doc, f);
   doc.fillColor(INK);
@@ -299,43 +375,47 @@ export async function buildCasePdf(
   const w = new ReportWriter(doc, lang, c.id);
 
   // ——— Cover ———
-  w.y = 120;
-  doc.font("displayBold").fontSize(28).fillColor(ACCENT).text(
-    lang === "bn" ? "আইনপথ" : "AinPath",
-    MARGIN,
-    w.y,
-    { width: CONTENT_W }
-  );
-  w.y = doc.y + 10;
+  w.y = 100;
+  const brand = lang === "bn" ? "আইনপথ" : "AinPath";
+  const brandH = w.measure(brand, CONTENT_W, 26, "displayBold");
+  doc.font("displayBold").fontSize(26).fillColor(ACCENT).text(brand, MARGIN, w.y, {
+    width: CONTENT_W,
+    height: brandH + 2,
+  });
+  w.y += brandH + 10;
   w.accentRule(48);
-  doc
-    .font("displayBold")
-    .fontSize(18)
-    .fillColor(INK)
-    .text(T(lang, "Case report", "কেস রিপোর্ট"), MARGIN, w.y, { width: CONTENT_W });
-  w.y = doc.y + 18;
 
-  doc
-    .font("body")
-    .fontSize(10)
-    .fillColor(MUTED)
-    .text(T(lang, "Prepared for your review and submission.", "আপনার পর্যালোচনা ও জমার জন্য প্রস্তুত।"), MARGIN, w.y, {
-      width: CONTENT_W,
-    });
-  w.y = doc.y + 28;
+  const reportTitle = T(lang, "Case report", "কেস রিপোর্ট");
+  const rtH = w.measure(reportTitle, CONTENT_W, 16, "displayBold");
+  doc.font("displayBold").fontSize(16).fillColor(INK).text(reportTitle, MARGIN, w.y, {
+    width: CONTENT_W,
+    height: rtH + 2,
+  });
+  w.y += rtH + 14;
+
+  w.p(
+    T(lang, "Prepared for your review and submission.", "আপনার পর্যালোচনা ও জমার জন্য প্রস্তুত।"),
+    { muted: true, size: 10 }
+  );
+  w.y += 8;
 
   w.metaRow(T(lang, "Case ID", "কেস আইডি"), c.id);
   w.metaRow(T(lang, "Channel", "চ্যানেল"), channelLabel);
   w.metaRow(T(lang, "Generated", "তৈরি"), generated);
-  w.metaRow(
-    T(lang, "Language", "ভাষা"),
-    lang === "bn" ? "বাংলা" : "English"
-  );
-  if (c.approvedAt) {
-    w.metaRow(T(lang, "Approved", "অনুমোদিত"), c.approvedAt.slice(0, 10));
+  w.metaRow(T(lang, "Language", "ভাষা"), lang === "bn" ? "বাংলা" : "English");
+  if (c.approvedAt) w.metaRow(T(lang, "Approved", "অনুমোদিত"), c.approvedAt.slice(0, 10));
+
+  if (details?.fullName || details?.mobile) {
+    w.y += 6;
+    w.h2(T(lang, "Reporter", "প্রতিবেদক"));
+    if (details.fullName) w.metaRow(T(lang, "Name", "নাম"), r(details.fullName));
+    if (details.mobile) w.metaRow(T(lang, "Mobile", "মোবাইল"), r(details.mobile));
+    if (details.email) w.metaRow(T(lang, "Email", "ইমেইল"), r(details.email));
+    if (details.address) w.metaRow(T(lang, "Address", "ঠিকানা"), r(details.address));
+    if (details.orderRef) w.metaRow(T(lang, "Order ID", "অর্ডার আইডি"), r(details.orderRef));
   }
 
-  w.y += 20;
+  w.y += 10;
   w.rule();
   w.p(
     T(
@@ -347,13 +427,13 @@ export async function buildCasePdf(
   );
 
   if (v.roadmap) {
-    w.y += 12;
+    w.y += 6;
     w.h2(T(lang, "At a glance", "এক নজরে"));
     w.p(pick(v.roadmap.headline, lang));
   }
 
   // ——— Facts ———
-  w.newPage();
+  w.sectionPage();
   w.h1(T(lang, "1. Confirmed facts", "১. নিশ্চিত তথ্য"));
   w.p(
     T(
@@ -403,49 +483,19 @@ export async function buildCasePdf(
   }
 
   // ——— Roadmap ———
-  w.newPage();
+  w.sectionPage();
   w.h1(T(lang, "2. Your path", "২. আপনার পথ"));
   if (v.roadmap) {
     w.p(pick(v.roadmap.headline, lang));
     w.h2(T(lang, "Next steps", "পরবর্তী ধাপ"));
     v.roadmap.steps.forEach((s, i) => {
-      w.ensure(48);
-      doc
-        .font("bodyBold")
-        .fontSize(10)
-        .fillColor(ACCENT)
-        .text(`${i + 1}`, MARGIN, w.y, { width: 18 });
-      doc
-        .font("bodyBold")
-        .fontSize(10)
-        .fillColor(INK)
-        .text(pick(s.title, lang), MARGIN + 22, w.y, { width: CONTENT_W - 22 });
-      w.y = doc.y + 2;
-      if (s.detail) {
-        doc
-          .font("body")
-          .fontSize(9)
-          .fillColor(MUTED)
-          .text(pick(s.detail, lang), MARGIN + 22, w.y, { width: CONTENT_W - 22 });
-        w.y = doc.y + 2;
-      }
-      if (s.where?.url) {
-        doc
-          .font("body")
-          .fontSize(8.5)
-          .fillColor(ACCENT)
-          .text(s.where.url, MARGIN + 22, w.y, { width: CONTENT_W - 22 });
-        w.y = doc.y + 2;
-      }
-      if (s.caveat) {
-        doc
-          .font("body")
-          .fontSize(8.5)
-          .fillColor(MUTED)
-          .text(pick(s.caveat, lang), MARGIN + 22, w.y, { width: CONTENT_W - 22 });
-        w.y = doc.y + 2;
-      }
-      w.y += 10;
+      w.step(
+        i + 1,
+        pick(s.title, lang),
+        s.detail ? pick(s.detail, lang) : undefined,
+        s.where?.url,
+        s.caveat ? pick(s.caveat, lang) : undefined
+      );
     });
 
     w.h2(T(lang, "Deadlines", "সময়সীমা"));
@@ -458,11 +508,7 @@ export async function buildCasePdf(
     const clocks = v.roadmap.clocks ?? [];
     if (clocks.length) {
       w.table(
-        [
-          T(lang, "Clock", "ঘড়ি"),
-          T(lang, "Due", "শেষ তারিখ"),
-          T(lang, "Status", "অবস্থা"),
-        ],
+        [T(lang, "Clock", "ঘড়ি"), T(lang, "Due", "শেষ তারিখ"), T(lang, "Status", "অবস্থা")],
         clocks.map((cl) => [
           pick(cl.name, lang),
           cl.dueDate ?? "—",
@@ -475,7 +521,7 @@ export async function buildCasePdf(
   }
 
   // ——— Buyer draft ———
-  w.newPage();
+  w.sectionPage();
   w.h1(T(lang, "3. Draft to submit", "৩. জমার খসড়া"));
   w.p(
     T(
@@ -494,8 +540,13 @@ export async function buildCasePdf(
 
   w.h2(draftTitle);
   w.bullets([
-    `${T(lang, "Name", "নাম")}: [${T(lang, "your name", "আপনার নাম")}]`,
-    `${T(lang, "Mobile", "মোবাইল")}: [${T(lang, "your mobile", "আপনার মোবাইল")}]`,
+    `${T(lang, "Name", "নাম")}: ${details?.fullName ? r(details.fullName) : `[${T(lang, "your name", "আপনার নাম")}]`}`,
+    `${T(lang, "Mobile", "মোবাইল")}: ${details?.mobile ? r(details.mobile) : `[${T(lang, "your mobile", "আপনার মোবাইল")}]`}`,
+    ...(details?.email ? [`${T(lang, "Email", "ইমেইল")}: ${r(details.email)}`] : []),
+    ...(details?.address ? [`${T(lang, "Address", "ঠিকানা")}: ${r(details.address)}`] : []),
+    ...(details?.orderRef
+      ? [`${T(lang, "Order ID", "অর্ডার আইডি")}: ${r(details.orderRef)}`]
+      : []),
     `${T(lang, "Seller", "বিক্রেতা")}: ${r(get("seller") || "—")}`,
     `${T(lang, "Channel", "চ্যানেল")}: ${channelLabel}`,
     `${T(lang, "Order date", "অর্ডারের তারিখ")}: ${get("order_date") || "—"}`,
@@ -529,7 +580,7 @@ export async function buildCasePdf(
   // ——— Findings ———
   const findings = c.analysis?.findings ?? [];
   if (findings.length) {
-    w.newPage();
+    w.sectionPage();
     w.h1(T(lang, "4. Findings", "৪. পর্যবেক্ষণ"));
     w.p(
       T(
@@ -541,7 +592,6 @@ export async function buildCasePdf(
     );
 
     for (const finding of findings) {
-      w.ensure(80);
       w.h2(pick(finding.title, lang));
       w.p(pick(finding.risk, lang));
       if (finding.anchor?.quote) {
@@ -549,9 +599,7 @@ export async function buildCasePdf(
           `${T(lang, "Page", "পৃষ্ঠা")} ${finding.anchor.page}: “${finding.anchor.quote}”`
         );
       }
-      if (finding.authorityQuote) {
-        w.quote(`“${finding.authorityQuote}”`);
-      }
+      if (finding.authorityQuote) w.quote(`“${finding.authorityQuote}”`);
       w.p(`${T(lang, "Counterpoint", "পাল্টা যুক্তি")}: ${pick(finding.counterpoint, lang)}`, {
         size: 9,
         muted: true,
@@ -564,7 +612,7 @@ export async function buildCasePdf(
   }
 
   // ——— Evidence ———
-  w.newPage();
+  w.sectionPage();
   w.h1(
     findings.length
       ? T(lang, "5. Evidence index", "৫. প্রমাণের সূচি")
@@ -581,18 +629,8 @@ export async function buildCasePdf(
 
   if (c.evidence.length) {
     w.table(
-      [
-        T(lang, "ID", "আইডি"),
-        T(lang, "File", "ফাইল"),
-        T(lang, "Type", "ধরন"),
-        "SHA-256",
-      ],
-      c.evidence.map((e) => [
-        e.id,
-        e.filename,
-        e.kind,
-        e.sha256.slice(0, 16) + "…",
-      ])
+      [T(lang, "ID", "আইডি"), T(lang, "File", "ফাইল"), T(lang, "Type", "ধরন"), "SHA-256"],
+      c.evidence.map((e) => [e.id, e.filename, e.kind, e.sha256.slice(0, 16) + "…"])
     );
   } else {
     w.p(T(lang, "No files attached.", "কোনো ফাইল সংযুক্ত নেই।"), { muted: true });
@@ -608,6 +646,6 @@ export async function buildCasePdf(
     { muted: true, size: 9 }
   );
 
-  w.footer();
+  paintFooters(doc, lang, c.id);
   return collect(doc);
 }

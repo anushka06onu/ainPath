@@ -1,5 +1,0 @@
-WHATSAPP CHAT EXPORT — buyer and TechNest BD (FICTIONAL TEST DOCUMENT)
-[2026-10-30 18:02] TechNest BD: Your order for Aster X1 Smart Speaker — Model A is confirmed. Please confirm the delivery address: House 12, Road 5, Mirpur 10, Dhaka. / অনুগ্রহ করে ডেলিভারি ঠিকানা নিশ্চিত করুন।
-[2026-10-30 18:05] Buyer: yes
-[2026-10-30 18:06] TechNest BD: Thank you. We will dispatch within 2 days. / ধন্যবাদ।
-[2026-11-08 10:40] TechNest BD: Your parcel has been handed to the courier today.

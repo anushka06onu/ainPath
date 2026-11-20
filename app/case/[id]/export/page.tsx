@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { CaseLoading, CaseMissing } from "@/components/case-loading";
 import { StepNav } from "@/components/case-shell";
 import { Stamp } from "@/components/stamp";
+import { ReporterDetailsModal } from "@/components/reporter-details-modal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useCase } from "@/hooks/use-case";
 import { useI18n } from "@/lib/i18n/context";
 import { deleteCase, exportUrl, patchCase } from "@/lib/client";
+import type { ReporterDetails } from "@/lib/types";
 import { toast } from "sonner";
 
 export default function ExportPage({ params }: { params: Promise<{ id: string }> }) {
@@ -21,6 +23,8 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
   const { data, setData, loading, error } = useCase(id);
   const [redact, setRedact] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [reporterOpen, setReporterOpen] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   if (loading) return <CaseLoading />;
   if (error || !data) return <CaseMissing />;
@@ -50,9 +54,31 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
     }
   }
 
+  async function generatePdf(details: ReporterDetails) {
+    setPdfBusy(true);
+    try {
+      const c = await patchCase(id, { reporter: details });
+      setData(c);
+      const href = exportUrl(id, "report", "pdf", { lang, redact, download: true });
+      const res = await fetch(href);
+      if (!res.ok) throw new Error("pdf-failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ainpath-report-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setReporterOpen(false);
+    } catch {
+      toast.error(t.common.error);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   const approved = !!data.approvedAt;
   const hasAnalysis = !!data.analysis;
-  const pdfHref = exportUrl(id, "report", "pdf", { lang, redact, download: true });
 
   return (
     <div>
@@ -157,20 +183,14 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
           <p className="font-medium">{E.pdfReport}</p>
           <p className="mt-1 text-sm text-muted-foreground">{E.pdfReportD}</p>
           <div className="mt-4">
-            {approved ? (
-              <Button
-                size="lg"
-                className="h-11 px-5"
-                nativeButton={false}
-                render={<a href={pdfHref} download />}
-              >
-                {E.pdfReport}
-              </Button>
-            ) : (
-              <Button size="lg" className="h-11 px-5" disabled>
-                {E.pdfReport}
-              </Button>
-            )}
+            <Button
+              size="lg"
+              className="h-11 px-5"
+              disabled={!approved || pdfBusy}
+              onClick={() => setReporterOpen(true)}
+            >
+              {E.pdfReport}
+            </Button>
           </div>
         </div>
 
@@ -244,6 +264,14 @@ export default function ExportPage({ params }: { params: Promise<{ id: string }>
       </section>
 
       <StepNav caseId={id} back="roadmap" />
+
+      <ReporterDetailsModal
+        open={reporterOpen}
+        initial={data.reporter}
+        busy={pdfBusy}
+        onOpenChange={setReporterOpen}
+        onSubmit={generatePdf}
+      />
     </div>
   );
 }

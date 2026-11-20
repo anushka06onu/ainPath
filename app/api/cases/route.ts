@@ -4,7 +4,7 @@ import { createCase } from "@/lib/cases";
 import { toView } from "@/lib/cases";
 
 const Body = z.object({
-  lang: z.enum(["bn", "en"]).default("bn"),
+  lang: z.enum(["bn", "en"]).default("en"),
   channel: z.enum(["daraz", "facebook", "other"]).default("daraz"),
   paymentChannel: z
     .enum([

@@ -262,6 +262,15 @@ export interface Question {
   affectsRoute: boolean;
 }
 
+/** Contact details collected before PDF export for the complaint draft. */
+export interface ReporterDetails {
+  fullName: string;
+  mobile: string;
+  email?: string;
+  address?: string;
+  orderRef?: string;
+}
+
 export interface CaseRecord {
   id: string;
   caseCode?: string;
@@ -278,6 +287,7 @@ export interface CaseRecord {
   activeRunId?: string;
   retentionExpiresAt?: string;
   approvedAt?: string;
+  reporter?: ReporterDetails;
   fixture?: string;
   createdAt: string;
   updatedAt: string;

@@ -45,22 +45,23 @@ const hind = Hind_Siliguri({
 });
 
 export const metadata: Metadata = {
-  title: "আইনপথ · AinPath",
+  title: "AinPath",
   description:
-    "ভুল পণ্য পেয়েছেন? জানুন এখন ঠিক কী করবেন। Wrong item delivered? Know exactly what to do next — with proof.",
+    "Wrong item delivered? Know exactly what to do next, with proof. ভুল পণ্য পেয়েছেন? জানুন এখন ঠিক কী করবেন।",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const jar = await cookies();
   const raw = jar.get("ainpath.lang")?.value;
-  const initialLang: Lang = raw === "en" || raw === "bn" ? raw : "bn";
+  const initialLang: Lang = raw === "en" || raw === "bn" ? raw : "en";
 
   return (
     <html
       lang={initialLang}
       data-lang={initialLang}
+      className={`dark ${sourceSans.variable} ${fraunces.variable} ${jetbrains.variable} ${notoBn.variable} ${hind.variable} h-full`}
+      style={{ colorScheme: "dark" }}
       suppressHydrationWarning
-      className={`${sourceSans.variable} ${fraunces.variable} ${jetbrains.variable} ${notoBn.variable} ${hind.variable} h-full`}
     >
       <head>
         <PrefsScript />

@@ -14,13 +14,13 @@ const Body = z.object({
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
-    const c = requireCase(id);
+    const c = await requireCase(id);
     const body = Body.parse(await req.json());
 
     if (body.withdraw) {
       if (!c.consent) throw new HttpError(400, "no-consent");
       c.consent = { ...c.consent, withdrawnAt: new Date().toISOString() };
-      saveCase(c);
+      await saveCase(c);
       return ok(toView(c));
     }
 
@@ -38,7 +38,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       retentionDays: body.retentionDays,
       grantedAt: now,
     };
-    saveCase(c);
+    await saveCase(c);
     return ok(toView(c));
   } catch (e) {
     if (e instanceof z.ZodError) return Response.json({ error: "bad-request" }, { status: 400 });
