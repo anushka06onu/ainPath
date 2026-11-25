@@ -592,22 +592,20 @@ export async function buildCasePdf(
     );
 
     for (const finding of findings) {
-      w.h2(pick(finding.title, lang));
-      w.p(pick(finding.risk, lang));
-      if (finding.anchor?.quote) {
-        w.quote(
-          `${T(lang, "Page", "পৃষ্ঠা")} ${finding.anchor.page}: “${finding.anchor.quote}”`
-        );
+      w.h2(r(pick(finding.title, lang)));
+      w.p(r(pick(finding.risk, lang)));
+      for (const anchor of [finding.anchor, finding.secondAnchor]) {
+        if (!anchor?.quote) continue;
+        w.quote(anchor.evidenceId + " · " + T(lang, "Page", "পৃষ্ঠা") + " " + anchor.page + " · “" + r(anchor.quote) + "”");
       }
-      if (finding.authorityQuote) w.quote(`“${finding.authorityQuote}”`);
-      w.p(`${T(lang, "Counterpoint", "পাল্টা যুক্তি")}: ${pick(finding.counterpoint, lang)}`, {
-        size: 9,
-        muted: true,
-      });
-      w.p(`${T(lang, "Next check", "পরবর্তী যাচাই")}: ${pick(finding.nextCheck, lang)}`, {
-        size: 9,
-        muted: true,
-      });
+      if (finding.authorityQuote) w.quote("“" + finding.authorityQuote + "”");
+      for (const authorityId of finding.authorityIds) {
+        const authority = v.authorities.find((a) => a.id === authorityId);
+        if (authority) w.p(pick(authority.title, lang) + " · " + authority.section + " · " + authority.url, { muted: true, size: 9 });
+      }
+      w.p(T(lang, "Verification", "যাচাই") + " · " + r(pick(finding.statusReason, lang)), { size: 9, muted: true });
+      w.p(T(lang, "Counterpoint", "পাল্টা যুক্তি") + " · " + r(pick(finding.counterpoint, lang)), { size: 9, muted: true });
+      w.p(T(lang, "Next check", "পরবর্তী যাচাই") + " · " + r(pick(finding.nextCheck, lang)), { size: 9, muted: true });
     }
   }
 

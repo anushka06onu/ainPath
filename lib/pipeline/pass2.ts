@@ -1,120 +1,99 @@
-/**
- * Independent Pass-2 mis-grounding / entailment check (plan §9).
- * Fresh Groq call — no upstream chain-of-thought. Falls back to SKIPPED without LLM.
- */
 import { z } from "zod";
 import type { AgentRun, Bi, CaseRecord, Finding, Pass2Verdict } from "../types";
 import { llmInfo, llmJson, LLMError, sha, UNTRUSTED_NOTE } from "../llm";
-import { getAuthority } from "../db";
+import { allAuthorities, getAuthority } from "../db";
 import { applyHierarchyToFinding } from "../engines/hierarchy";
-import { allAuthorities } from "../db";
-import { redactPii } from "../pii";
 
 const Pass2Schema = z.object({
-  checks: z.array(
-    z.object({
-      id: z.string(),
-      verdict: z.enum(["PASS", "FLAG_MISGROUNDED", "FLAG_HIERARCHY", "FLAG_MISSING_EXCEPTION"]),
-      note_en: z.string(),
-      note_bn: z.string().optional(),
-    })
-  ),
+  checks: z.array(z.object({
+    id: z.string(),
+    verdict: z.enum(["PASS", "FLAG_MISGROUNDED", "FLAG_HIERARCHY", "FLAG_MISSING_EXCEPTION"]),
+    note_en: z.string().trim().min(1).max(600),
+    note_bn: z.string().trim().min(1).max(600),
+  })).max(8),
 });
 
-function disputedDependent(c: CaseRecord, f: Finding): boolean {
-  // Substitution / chat-dependent findings should not stay VERIFIED if chat disputed
-  const chat = c.facts.find((x) => x.key === "chat_context");
-  if (chat && (chat.status === "disputed" || chat.status === "candidate") && /substitut|warranty|delivery/i.test(f.id + f.title.en))
-    return true;
-  return c.facts.some((x) => x.status === "disputed" && f.risk.en.toLowerCase().includes(x.key.replace(/_/g, " ")));
-}
-
-export async function runVerifyPass2(
-  findings: Finding[],
-  c: CaseRecord
-): Promise<{ findings: Finding[]; run: AgentRun }> {
+export async function runVerifyPass2(findings: Finding[], c: CaseRecord) {
   const t0 = Date.now();
-  const info = llmInfo();
-  const auths = allAuthorities();
+  const info = llmInfo(c);
+  const checks = new Map<string, { verdict: Pass2Verdict; note: Bi }>();
+  const next = findings.map((f) => applyHierarchyToFinding(f, allAuthorities()));
+  const eligible = next.filter((f) => f.status !== "unresolved" && f.status !== "rejected_ungrounded" &&
+    f.pass2Verdict !== "FLAG_HIERARCHY");
+  const deliveryEstimate = c.facts.find((f) => f.key === "delivery_estimate_in_order");
+  const chat = c.facts.find((f) => f.key === "chat_context");
+  const reviewFacts = [deliveryEstimate, chat].flatMap((f) =>
+    f ? [{ key: f.key, value: f.value, status: f.status }] : []);
+  const payload = eligible.map((f) => {
+    const a = getAuthority(f.authorityIds[0]);
+    return {
+      id: f.id,
+      claim: f.risk,
+      clauses: [f.anchor.quote, f.secondAnchor?.quote].filter(Boolean),
+      authority: { quoted: f.authorityQuote, passage: a?.passage, bangla: a?.passageBn, strength: a?.strength },
+      facts: f.riskCategory === "DELIVERY_UNCLEAR" ? reviewFacts.filter((x) => x.key === "delivery_estimate_in_order")
+        : f.riskCategory === "SUBSTITUTION_DISPUTE" ? reviewFacts.filter((x) => x.key === "chat_context") : [],
+    };
+  });
   let status: AgentRun["status"] = "done";
-  let note: string | undefined;
-  const byId = new Map<string, { verdict: Pass2Verdict; note: Bi }>();
+  let note = "no-grounded-findings";
 
-  // Hierarchy first (deterministic)
-  let next = findings.map((f) => applyHierarchyToFinding(f, auths));
-
-  if (info.enabled && next.length) {
+  if (eligible.length && info.enabled) {
     try {
-      const body = next
-        .map((f) => {
-          const a = getAuthority(f.authorityIds[0]);
-          return redactPii(
-            `id=${f.id}\nclaim: ${f.risk.en}\nquoted_authority: ${f.authorityQuote}\nauthority_full: ${a?.passage ?? ""}\nauthority_strength: ${a?.strength ?? a?.type}\nfacts: ${c.facts.map((x) => `${x.key}=${x.value}(${x.status})`).join("; ")}`
-          );
-        })
-        .join("\n\n---\n\n");
-
-      const out = await llmJson<unknown>({
-        system: `You are an independent legal entailment checker for Bangladesh consumer disputes. You have NOT seen any prior agent reasoning. ${UNTRUSTED_NOTE}
-For each finding, decide if the pinned authority passage actually supports the claim (not just topic overlap).
-- PASS: passage substantively supports the claim and no obvious omitted exception.
-- FLAG_MISGROUNDED: real section cited for the wrong legal proposition (e.g. s.44 false ad when issue is non-delivery → s.45).
-- FLAG_HIERARCHY: GUIDELINE or PLATFORM_POLICY framed as criminal statute.
-- FLAG_MISSING_EXCEPTION: claim ignores a clear exception in the authority text.
-Return JSON {"checks":[{"id","verdict","note_en","note_bn"}]}.`,
-        user: body,
+      const out = await llmJson<unknown>(c, {
+        system: "Independently check each consumer-dispute finding against its supplied source passages and case facts. " +
+          UNTRUSTED_NOTE + " Prefer the Bangla source text when present. Check the actual proposition, scope, and exceptions. " +
+          " Mark PASS only when the sources support the claim as framed. Use FLAG_MISGROUNDED for unsupported propositions, " +
+          " FLAG_HIERARCHY for misstated legal force, and FLAG_MISSING_EXCEPTION for an omitted condition or exception. " +
+          ' Return {"checks":[{"id","verdict","note_en","note_bn"}]}. Include exactly one check per supplied ID.',
+        user: JSON.stringify(payload),
       });
-      const parsed = Pass2Schema.parse(out);
-      for (const ch of parsed.checks) {
-        byId.set(ch.id, {
-          verdict: ch.verdict,
-          note: { en: ch.note_en, bn: ch.note_bn || ch.note_en },
-        });
+      const eligibleIds = new Set(eligible.map((f) => f.id));
+      for (const check of Pass2Schema.parse(out).checks) {
+        if (!eligibleIds.delete(check.id)) throw new LLMError("unexpected-verdict-id");
+        checks.set(check.id, { verdict: check.verdict, note: { en: check.note_en, bn: check.note_bn } });
       }
-    } catch (e) {
+      if (eligibleIds.size) throw new LLMError("incomplete-verification");
+      note = checks.size + " independent checks";
+    } catch (error) {
       status = "fallback";
-      note = e instanceof LLMError ? e.message : "pass2-invalid";
+      note = error instanceof LLMError ? error.message : "invalid-output";
+      checks.clear();
     }
-  } else {
-    status = info.enabled ? "done" : "fallback";
-    note = info.enabled ? undefined : "no-llm — pass2 skipped";
+  } else if (eligible.length) {
+    status = "fallback";
+    note = "model-disabled";
   }
 
-  next = next.map((f) => {
-    if (f.pass2Verdict === "FLAG_HIERARCHY") return f; // already set by hierarchy
-    const ch = byId.get(f.id);
-    const verdict: Pass2Verdict = ch?.verdict ?? "SKIPPED";
-    let statusF = f.status;
-    let statusReason = f.statusReason;
-    const pass2Note = ch?.note;
-
-    if (verdict === "FLAG_MISGROUNDED" || verdict === "FLAG_MISSING_EXCEPTION" || verdict === "FLAG_HIERARCHY") {
-      statusF = "review";
-      statusReason = pass2Note ?? {
-        en: `Pass 2 flagged ${verdict}.`,
-        bn: `পাস ২ ${verdict} চিহ্নিত করেছে।`,
-      };
-    } else if (verdict === "PASS" && statusF === "verified" && disputedDependent(c, f)) {
-      statusF = "disputed_fact_dependent";
-      statusReason = {
-        en: "Legal checks passed but a dependent fact is disputed — not marked verified.",
-        bn: "আইনি যাচাই পাস, কিন্তু নির্ভরশীল তথ্য বিতর্কিত — verified নয়।",
-      };
+  const reviewed = next.map((f): Finding => {
+    if (!eligible.includes(f)) return { ...f, pass2Verdict: f.pass2Verdict ?? "SKIPPED" };
+    const check = checks.get(f.id);
+    const verdict = check?.verdict ?? "SKIPPED";
+    const result = { ...f, pass2Verdict: verdict, pass2Note: check?.note };
+    if (check && verdict !== "PASS") return { ...result, status: "review", statusReason: check.note };
+    if (f.riskCategory === "DELIVERY_UNCLEAR" && deliveryEstimate?.status === "confirmed" && deliveryEstimate.value === "yes") {
+      return { ...result, status: "review", statusReason: {
+        en: "The buyer confirmed a delivery estimate in the order. Compare that estimate with the terms before relying on this finding.",
+        bn: "ক্রেতা অর্ডারে ডেলিভারির আনুমানিক সময় নিশ্চিত করেছেন। এই ফলাফলের ওপর নির্ভর করার আগে সেটি শর্তাবলির সঙ্গে মিলিয়ে দেখুন।",
+      } };
     }
-
-    return { ...f, pass2Verdict: verdict, pass2Note, status: statusF, statusReason };
+    if (f.riskCategory === "SUBSTITUTION_DISPUTE" && chat?.status !== "confirmed") {
+      return { ...result, status: "disputed_fact_dependent", statusReason: {
+        en: "The relevant chat interpretation still needs confirmation.",
+        bn: "প্রাসঙ্গিক চ্যাটের ব্যাখ্যা এখনও নিশ্চিত করা প্রয়োজন।",
+      } };
+    }
+    if (verdict === "SKIPPED" && f.origin === "model" && f.status === "verified") {
+      return { ...result, status: "review", statusReason: {
+        en: "The quotes match. An independent check of the model's interpretation is still needed.",
+        bn: "উদ্ধৃতি মিলেছে। মডেলের ব্যাখ্যা এখনও স্বাধীনভাবে যাচাই করা প্রয়োজন।",
+      } };
+    }
+    return result;
   });
-
-  return {
-    findings: next,
-    run: {
-      agent: "verify_p2",
-      status,
-      model: status === "fallback" ? "skipped" : info.model,
-      inputHash: sha(findings.map((f) => f.id + f.authorityQuote).join()).slice(0, 12),
-      ms: Date.now() - t0,
-      note,
-      at: new Date().toISOString(),
-    },
+  const run: AgentRun = {
+    agent: "verify_p2", status, model: checks.size ? info.model : "skipped",
+    inputHash: sha(JSON.stringify(payload)), ms: Date.now() - t0, note, at: new Date().toISOString(),
   };
+  return { findings: reviewed, run };
 }

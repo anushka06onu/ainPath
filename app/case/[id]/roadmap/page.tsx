@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useCase } from "@/hooks/use-case";
 import { useI18n } from "@/lib/i18n/context";
 import { analyzeCase, getCaseDiff, swapChat } from "@/lib/client";
+import type { DiffResult } from "@/lib/engines/diff";
 import type { RouteStep } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -27,16 +28,24 @@ function labelTone(label: RouteStep["label"]) {
 
 export default function RoadmapPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { t, bi } = useI18n();
+  const { t, bi, lang } = useI18n();
   const R = t.roadmap;
   const { data, setData, loading, error } = useCase(id);
   const [busy, setBusy] = useState(false);
   const [pulseIds, setPulseIds] = useState<Set<string>>(new Set());
-  const [diff, setDiff] = useState<{
-    reusedStages: string[];
-    recomputedStages: string[];
-    routeChanges: { changedLines: { type: string; before?: string; after?: string }[] }[];
-  } | null>(null);
+  const [diff, setDiff] = useState<DiffResult | null>(null);
+  const activeRun = data?.analysis?.runId;
+  const baseRun = data?.analysis?.baseRunId;
+  useEffect(() => {
+    if (!activeRun || !baseRun) return;
+    let current = true;
+    void getCaseDiff(id, baseRun, activeRun, lang).then(
+      (result) => { if (current) setDiff(result); },
+      () => { if (current) setDiff(null); },
+    );
+    return () => { current = false; };
+  }, [id, activeRun, baseRun, lang]);
+
   const prevSteps = useRef<RouteStep[]>([]);
 
   useEffect(() => {
@@ -75,12 +84,6 @@ export default function RoadmapPage({ params }: { params: Promise<{ id: string }
       await swapChat(id, next);
       const c = await analyzeCase(id, () => {});
       setData(c);
-      try {
-        const d = await getCaseDiff(id, c.analysis?.baseRunId, c.analysis?.runId);
-        setDiff(d as typeof diff);
-      } catch {
-        setDiff(null);
-      }
       toast.success(t.compare.swapped);
     } catch {
       toast.error(t.common.error);
@@ -119,11 +122,14 @@ export default function RoadmapPage({ params }: { params: Promise<{ id: string }
       ) : null}
       {data.channel === "other" ? <UncertaintyBanner kind="out_of_scope" className="mt-4" /> : null}
 
-      {diff ? (
+      {diff && diff.targetRunId === activeRun ? (
         <DiffHighlighter
           reusedStages={diff.reusedStages}
           recomputedStages={diff.recomputedStages}
-          changes={diff.routeChanges.flatMap((r) => r.changedLines)}
+          changes={[
+            ...diff.routeChanges.flatMap((r) => r.changedLines),
+            ...diff.findingChanges.map(({ before, after }) => ({ type: "MODIFIED", before, after })),
+          ]}
         />
       ) : data.analysis?.baseRunId && data.analysis?.runId ? (
         <div className="mt-4 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-3 text-sm">

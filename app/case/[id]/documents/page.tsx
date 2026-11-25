@@ -42,7 +42,8 @@ export default function DocumentsPage({ params }: { params: Promise<{ id: string
   if (loading) return <CaseLoading />;
   if (error || !data) return <CaseMissing />;
 
-  const needsConsent = !data.consent || !!data.consent.withdrawnAt;
+  const needsConsent = !data.consent || !!data.consent.withdrawnAt ||
+    (data.processingMode === "CLOUD_REGIONAL" && data.consent.version !== "pdpa2026-v1.1");
 
   async function onConsent(opts: {
     processingMode: ProcessingMode;

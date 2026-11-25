@@ -271,6 +271,34 @@ export interface ReporterDetails {
   orderRef?: string;
 }
 
+export interface IntakeCandidate {
+  value: string;
+  evidenceIds: string[];
+}
+
+export interface PipelineCache {
+  intake?: {
+    hash: string;
+    candidates: Partial<Record<FactKey, IntakeCandidate>>;
+    run: AgentRun;
+  };
+  terms?: {
+    hash: string;
+    findings: Finding[];
+    runs: AgentRun[];
+  };
+  pass2?: {
+    hash: string;
+    findings: Finding[];
+    run: AgentRun;
+  };
+  roadmap?: {
+    hash: string;
+    deadlineHash: string;
+    value: Roadmap;
+  };
+}
+
 export interface CaseRecord {
   id: string;
   caseCode?: string;
@@ -289,11 +317,13 @@ export interface CaseRecord {
   approvedAt?: string;
   reporter?: ReporterDetails;
   fixture?: string;
+  demoModelEligible?: boolean;
+  pipelineCache?: PipelineCache;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface CaseView extends CaseRecord {
+export interface CaseView extends Omit<CaseRecord, "pipelineCache" | "demoModelEligible"> {
   roadmap: Roadmap;
   authorities: Authority[];
   limits: { maxMb: number; maxPages: number; maxFiles: number };

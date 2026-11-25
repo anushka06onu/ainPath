@@ -1,5 +1,6 @@
 import type { Bi, CaseRecord, CaseView, Lang } from "./types";
 import { toView } from "./cases";
+import { redactPii } from "./pii";
 
 type Block =
   | { t: "h1" | "h2" | "p" | "quote"; s: string }
@@ -9,10 +10,7 @@ type Block =
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 export function redact(s: string): string {
-  return s
-    .replace(/(\+?88)?01[3-9]\d{8}/g, "[phone removed]")
-    .replace(/\b(DZ|RR)-[A-Z]+-\d+\b/g, "[id removed]")
-    .replace(/\b\d{10,17}\b/g, "[number removed]");
+  return redactPii(s).replace(/\b(DZ|RR)-[A-Z]+-\d+\b/g, "[id removed]");
 }
 
 function toMd(b: Block[]): string {
@@ -212,7 +210,13 @@ export function memo(c: CaseRecord, l: Lang, doRedact: boolean): Block[] {
   const v = toView(c);
   const r = doRedact ? redact : (s: string) => s;
   const a = c.analysis;
-  const label = (s: string) => ({ verified: T(l, "Citation verified", "উদ্ধৃতি যাচাইকৃত"), unresolved: T(l, "Unresolved", "অমীমাংসিত"), review: T(l, "Needs review", "পর্যালোচনা দরকার") } as Record<string, string>)[s];
+  const labels = {
+    verified: T(l, "Citation verified", "উদ্ধৃতি যাচাইকৃত"),
+    unresolved: T(l, "Unresolved", "অমীমাংসিত"),
+    review: T(l, "Needs review", "পর্যালোচনা দরকার"),
+    disputed_fact_dependent: T(l, "Depends on a disputed fact", "বিতর্কিত তথ্যের ওপর নির্ভরশীল"),
+    rejected_ungrounded: T(l, "Source check failed", "উৎস যাচাই ব্যর্থ"),
+  };
   const blocks: Block[] = [
     { t: "h1", s: T(l, "Reviewer memorandum", "পর্যালোচক স্মারক") },
     { t: "p", s: T(l, `Case ${c.id} · Channel: ${c.channel} · Generated ${new Date().toISOString().slice(0, 10)}. Drafted by software for a qualified reviewer. It flags risks; it does not find that any breach occurred.`, `কেস ${c.id} · চ্যানেল: ${c.channel} · তৈরি ${new Date().toISOString().slice(0, 10)}। সফটওয়্যার তৈরি, যোগ্য পর্যালোচকের জন্য। এটি ঝুঁকি চিহ্নিত করে; কোনো লঙ্ঘন ঘটেছে বলে সিদ্ধান্ত দেয় না।`) },
@@ -224,15 +228,15 @@ export function memo(c: CaseRecord, l: Lang, doRedact: boolean): Block[] {
   for (const f of a?.findings ?? []) {
     const auths = f.authorityIds.map((id) => v.authorities.find((x) => x.id === id)).filter(Boolean);
     blocks.push(
-      { t: "h2", s: `${pick(f.title, l)} — ${label(f.status)}` },
-      { t: "p", s: pick(f.risk, l) },
-      { t: "quote", s: `${T(l, "Page", "পৃষ্ঠা")} ${f.anchor.page}: “${f.anchor.quote}”${f.secondAnchor ? `\n${T(l, "Page", "পৃষ্ঠা")} ${f.secondAnchor.page}: “${f.secondAnchor.quote}”` : ""}` },
+      { t: "h2", s: `${r(pick(f.title, l))} — ${labels[f.status]}` },
+      { t: "p", s: r(pick(f.risk, l)) },
+      { t: "quote", s: `${T(l, "Page", "পৃষ্ঠা")} ${f.anchor.page} (${f.anchor.evidenceId}) · “${r(f.anchor.quote)}”${f.secondAnchor ? `\n${T(l, "Page", "পৃষ্ঠা")} ${f.secondAnchor.page} (${f.secondAnchor.evidenceId}) · “${r(f.secondAnchor.quote)}”` : ""}` },
       { t: "p", s: `${T(l, "Authority", "কর্তৃপক্ষ")}: ${auths.map((x) => `${pick(x!.title, l)} (${x!.textKind === "verbatim" ? T(l, "official text", "সরকারি পাঠ") : T(l, "paraphrase — verify", "সারসংক্ষেপ — যাচাই করুন")}) ${x!.url}`).join("; ")}` },
       { t: "quote", s: `“${f.authorityQuote}”` },
-      { t: "p", s: `${T(l, "Counterpoint", "পাল্টা যুক্তি")}: ${pick(f.counterpoint, l)}` },
-      { t: "p", s: `${T(l, "Assumptions", "অনুমান")}: ${pick(f.assumptions, l)}` },
-      { t: "p", s: `${T(l, "Next check", "পরবর্তী যাচাই")}: ${pick(f.nextCheck, l)}` },
-      { t: "p", s: `${T(l, "Verification", "যাচাই")}: ${pick(f.statusReason, l)}` }
+      { t: "p", s: `${T(l, "Counterpoint", "পাল্টা যুক্তি")}: ${r(pick(f.counterpoint, l))}` },
+      { t: "p", s: `${T(l, "Assumptions", "অনুমান")}: ${r(pick(f.assumptions, l))}` },
+      { t: "p", s: `${T(l, "Next check", "পরবর্তী যাচাই")}: ${r(pick(f.nextCheck, l))}` },
+      { t: "p", s: `${T(l, "Verification", "যাচাই")}: ${r(pick(f.statusReason, l))}` }
     );
   }
   blocks.push({ t: "h2", s: T(l, "Positions on the actual order", "প্রকৃত অর্ডারে দুই পক্ষের অবস্থান") });

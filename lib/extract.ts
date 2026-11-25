@@ -6,6 +6,12 @@ export function normalizeDigits(s: string): string {
   return s.replace(/[০-৯]/g, (d) => String(BN_DIGITS.indexOf(d)));
 }
 
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(value + "T00:00:00Z");
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 /** Whitespace/digit-insensitive form used for quote matching. */
 export function normForMatch(s: string): string {
   return normalizeDigits(s)
@@ -32,16 +38,29 @@ export function looksLikeInjection(text: string): boolean {
   return INJECTION.some((r) => r.test(text));
 }
 
+export function usableEvidenceText(text: string): string {
+  return text.split(/\r?\n/).filter((line) => !looksLikeInjection(line)).join("\n");
+}
+
 export async function extractPdf(
   buf: Buffer,
   maxPages: number
 ): Promise<{ pages: EvidencePage[]; truncated: boolean; total: number }> {
-  const { getDocumentProxy, extractText } = await import("unpdf");
+  const { getDocumentProxy } = await import("unpdf");
   const pdf = await getDocumentProxy(new Uint8Array(buf));
-  const { text, totalPages } = await extractText(pdf, { mergePages: false });
-  const arr = (Array.isArray(text) ? text : [text]).slice(0, maxPages);
-  const pages = arr.map((raw, i) => cleanPdfPage(raw, i + 1));
-  return { pages, truncated: totalPages > maxPages, total: totalPages };
+  try {
+    const pages: EvidencePage[] = [];
+    for (let number = 1; number <= Math.min(pdf.numPages, maxPages); number++) {
+      const page = await pdf.getPage(number);
+      const content = await page.getTextContent();
+      const text = content.items.map((item) => "str" in item ? item.str + (item.hasEOL ? "\n" : "") : "").join("");
+      pages.push(cleanPdfPage(text, number));
+      page.cleanup();
+    }
+    return { pages, truncated: pdf.numPages > maxPages, total: pdf.numPages };
+  } finally {
+    await pdf.loadingTask.destroy();
+  }
 }
 
 export const UNREADABLE_LINE = "[unreadable line — please correct]";
@@ -65,13 +84,14 @@ export function cleanPdfPage(raw: string, page: number): EvidencePage {
     }
     return l.replace(/\u0000/g, "");
   });
-  const confidence = total ? Math.max(0.2, 1 - bad / total) : 1;
+  const confidence = total ? Math.max(0, 1 - bad / total) : 0;
   return { page, text: out.join("\n").trim(), confidence: Number(confidence.toFixed(2)) };
 }
 
 export async function extractImage(buf: Buffer): Promise<EvidencePage[]> {
   const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker("ben+eng");
+  const langPath = process.env.TESSERACT_LANG_PATH?.trim();
+  const worker = await createWorker("ben+eng", undefined, langPath ? { langPath, cacheMethod: "none" } : { cacheMethod: "readOnly" });
   try {
     const { data } = await worker.recognize(buf);
     return [

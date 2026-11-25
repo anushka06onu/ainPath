@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { ok, fail, type Ctx } from "@/lib/api";
-import { requireCase, toView } from "@/lib/cases";
+import { HttpError, invalidateAnalysis, requireCase, requireConsent, toView } from "@/lib/cases";
 import { deleteCase, saveCase } from "@/lib/db";
+import { isCalendarDate } from "@/lib/extract";
 import type { Fact } from "@/lib/types";
 
 const FACT_KEYS = [
@@ -52,6 +53,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
   try {
     const c = await requireCase((await params).id);
     const p = Patch.parse(await req.json());
+    if (c.consent?.withdrawnAt || p.approved || p.reporter) requireConsent(c);
+    const analysisInputs = () => JSON.stringify([c.story, c.channel, c.facts]);
+    const previous = analysisInputs();
+    if ((p.story !== undefined && p.story !== c.story) || p.facts?.some((f) => f.value !== undefined && f.value !== c.facts.find((old) => old.key === f.key)?.value)) {
+      c.demoModelEligible = false;
+    }
     if (p.story !== undefined) c.story = p.story;
     if (p.channel) c.channel = p.channel;
     if (p.lang) c.lang = p.lang;
@@ -63,24 +70,31 @@ export async function PATCH(req: Request, { params }: Ctx) {
       }
       if (u.pick && u.key === "delivery_date_alt") {
         const main = c.facts.find((x) => x.key === "delivery_date");
-        if (main) {
-          const old = main.value;
-          main.value = f.value;
-          main.source = "user";
-          main.status = "confirmed";
-          f.value = old;
-        }
+        if (!main || !isCalendarDate(f.value)) throw new HttpError(400, "invalid-delivery-date");
+        const old = { ...main };
+        main.value = f.value;
+        main.source = "user";
+        main.status = "confirmed";
+        main.evidenceIds = [...f.evidenceIds];
+        f.value = old.value;
+        f.evidenceIds = old.evidenceIds;
+        f.source = old.source;
+        f.status = "candidate";
         continue;
       }
       if (u.value !== undefined && u.value !== f.value) {
         f.value = u.value;
         f.source = "user";
+        f.evidenceIds = [];
         if (u.status === undefined) f.status = "candidate";
       }
       if (u.status) f.status = u.status;
     }
+    if (previous !== analysisInputs()) invalidateAnalysis(c);
+    if (p.approved && !c.analysis) throw new HttpError(409, "analysis-required");
     if (p.approved !== undefined) c.approvedAt = p.approved ? new Date().toISOString() : undefined;
     if (p.reporter) {
+      if (!c.approvedAt || !c.analysis) throw new HttpError(403, "not-approved");
       c.reporter = {
         fullName: p.reporter.fullName,
         mobile: p.reporter.mobile,

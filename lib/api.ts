@@ -1,18 +1,12 @@
-import { HttpError } from "./cases";
+import { HttpError } from "./http-error";
 
-export const ok = (data: unknown, init?: number) => Response.json(data, { status: init ?? 200 });
+export const noStore = { "cache-control": "private, no-store", "referrer-policy": "no-referrer" };
+export const ok = (data: unknown, init = 200) => Response.json(data, { status: init, headers: noStore });
 
 export function fail(e: unknown) {
-  if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
-  const message = e instanceof Error ? e.message : "unknown";
-  console.error("[api]", message);
-  // Surface actionable config errors to the client (missing DB URL, etc.)
-  const configHint =
-    /DATABASE_URL|required|ECONNREFUSED|password authentication|Neon/i.test(message);
-  return Response.json(
-    { error: configHint ? message : "server-error" },
-    { status: 500 }
-  );
+  if (e instanceof HttpError) return ok({ error: e.message }, e.status);
+  console.error("[api] request failed", e instanceof Error ? e.name : "unknown");
+  return ok({ error: "server-error" }, 500);
 }
 
 export type Ctx = { params: Promise<{ id: string }> };

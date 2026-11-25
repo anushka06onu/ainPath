@@ -1,122 +1,135 @@
-import type { Analysis, CaseRecord, AgentRun, PipelineRunSnapshot } from "../types";
-import { sha } from "../llm";
+import { randomUUID } from "node:crypto";
+import type { CaseRecord, AgentRun, Finding, PipelineRunSnapshot } from "../types";
+import { llmInfo, modelFingerprint, sha } from "../llm";
 import { runIntake } from "./intake";
 import { runResearch, runReview, runVerify, termsHash } from "./findings";
 import { runVerifyPass2 } from "./pass2";
 import { buildPositions, buildRoadmap } from "../rules";
-import crypto from "node:crypto";
-
-const runId = () => "run_" + crypto.randomBytes(4).toString("hex");
+import { todayIso } from "../engines/deadline";
+import { AUTHORITIES } from "../../corpus/authorities";
 
 export type Emit = (e: { agent: AgentRun["agent"]; status: "running" | "done" | "fallback" | "error"; run?: AgentRun; detail?: string }) => void;
 
-const factsHash = (c: CaseRecord) => sha(c.facts.map((f) => `${f.key}=${f.value}:${f.status}`).join("|")).slice(0, 12);
-const evidenceHash = (c: CaseRecord) => sha(c.evidence.map((e) => e.sha256 + e.pages.map((p) => p.text).join("")).join("|")).slice(0, 12);
+const hash = (data: unknown) => sha(JSON.stringify(data));
+const corpusHash = hash(AUTHORITIES);
+const termsAgents = ["research", "review", "verify"] as const;
 
-/**
- * Intake → Research → Review → Verify P1 → Verify P2.
- * Terms-stable research/review/verify_p1 may be cached; pass2 + positions always refresh with facts.
- */
 export async function runPipeline(c: CaseRecord, emit: Emit): Promise<CaseRecord> {
-  const runs: AgentRun[] = [];
+  const now = new Date();
   const parentRunId = c.activeRunId;
+  const runs: AgentRun[] = [];
   const reusedStages: string[] = [];
   const recomputedStages: string[] = [];
+  const cache = c.pipelineCache ??= {};
+  const model = modelFingerprint(c);
+  const canReuseFallback = !llmInfo(c).enabled;
 
-  emit({ agent: "intake", status: "running" });
-  const intake = await runIntake(c);
-  c.facts = intake.facts;
-  runs.push(intake.run);
-  recomputedStages.push("intake");
-  emit({ agent: "intake", status: intake.run.status === "fallback" ? "fallback" : "done", run: intake.run });
-
-  emit({ agent: "deadlines", status: "running" });
-  const dlRun: AgentRun = {
-    agent: "deadlines",
-    status: "done",
-    model: "deadline-engine",
-    inputHash: factsHash(c),
-    ms: 0,
-    note: "deterministic dual clocks",
-    at: new Date().toISOString(),
-  };
-  runs.push(dlRun);
-  recomputedStages.push("deadlines");
-  emit({ agent: "deadlines", status: "done", run: dlRun });
-
-  const th = termsHash(c);
-  const prev = c.analysis;
-  const cached = !!prev && prev.runs.some((r) => r.agent === "research" && r.inputHash === th) && prev.findings.length > 0;
-
-  let findings = prev?.findings ?? [];
-  let counterpoints = prev?.counterpoints ?? [];
-
-  if (cached) {
-    for (const agent of ["research", "review", "verify"] as const) {
-      const r: AgentRun = { agent, status: "done", model: "cache", inputHash: th, ms: 0, note: "terms unchanged — reused", at: new Date().toISOString() };
-      runs.push(r);
-      reusedStages.push(agent);
-      emit({ agent, status: "running" });
-      emit({ agent, status: "done", run: r });
-    }
-  } else {
-    emit({ agent: "research", status: "running" });
-    const research = await runResearch(c);
-    runs.push(research.run);
-    recomputedStages.push("research");
-    emit({ agent: "research", status: research.run.status === "fallback" ? "fallback" : "done", run: research.run, detail: research.retrieved.join(",") });
-
-    emit({ agent: "review", status: "running" });
-    const review = await runReview(research.candidates, c);
-    runs.push(review.run);
-    recomputedStages.push("review");
-    emit({ agent: "review", status: review.run.status === "fallback" ? "fallback" : "done", run: review.run });
-
-    emit({ agent: "verify", status: "running" });
-    const verify = runVerify(review.findings, c);
-    runs.push(verify.run);
-    findings = verify.findings;
-    recomputedStages.push("verify");
-    emit({ agent: "verify", status: "done", run: verify.run });
+  function start(agent: AgentRun["agent"]) {
+    emit({ agent, status: "running" });
+  }
+  function complete(run: AgentRun, inputHash: string, reused = false) {
+    const trace: AgentRun = {
+      ...run,
+      inputHash,
+      ...(reused ? { ms: 0, at: now.toISOString(), note: [run.note, "reused"].filter(Boolean).join(" · ") } : {}),
+    };
+    runs.push(trace);
+    (reused ? reusedStages : recomputedStages).push(trace.agent);
+    emit({ agent: trace.agent, status: trace.status === "fallback" ? "fallback" : "done", run: trace });
   }
 
-  emit({ agent: "verify_p2", status: "running" });
-  const p2 = await runVerifyPass2(findings, c);
-  runs.push(p2.run);
-  findings = p2.findings;
-  counterpoints = findings.map((f) => ({ findingId: f.id, text: f.counterpoint }));
-  recomputedStages.push("verify_p2");
-  emit({ agent: "verify_p2", status: p2.run.status === "fallback" ? "fallback" : "done", run: p2.run });
+  start("intake");
+  const before = c.facts;
+  const intake = await runIntake(c);
+  c.facts = intake.facts;
+  const factsHash = hash(c.facts);
+  if (hash(before) !== factsHash) c.approvedAt = undefined;
+  complete(intake.run, intake.run.inputHash, intake.reused);
 
-  const thisRunId = runId();
-  const roadmap = buildRoadmap(c);
+  start("deadlines");
+  const timingFacts = c.facts.filter((f) => ["delivery_date", "delivery_date_alt"].includes(f.key))
+    .map(({ key, value, status }) => ({ key, value, status }));
+  const deadlineHash = hash(["deadlines-v2", c.channel, c.paymentChannel, todayIso(now), timingFacts, corpusHash]);
+  const roadmapHash = hash(["roadmap-v2", deadlineHash, c.facts.map(({ key, status, value }) => [key, status, value])]);
+  const oldRoadmap = cache.roadmap;
+  const reuseDeadlines = oldRoadmap?.deadlineHash === deadlineHash;
+  const reuseRoadmap = oldRoadmap?.hash === roadmapHash;
+  const started = Date.now();
+  const roadmap = reuseRoadmap ? oldRoadmap.value : buildRoadmap(c, now, reuseDeadlines ? oldRoadmap.value.clocks : undefined);
+  cache.roadmap = { hash: roadmapHash, deadlineHash, value: roadmap };
+  complete({
+    agent: "deadlines", status: "done", model: "deadline-engine", inputHash: deadlineHash,
+    ms: Date.now() - started, at: now.toISOString(),
+  }, deadlineHash, reuseDeadlines);
+
+  const termsKey = hash(["terms-v2", termsHash(c), corpusHash, model]);
+  let termFindings: Finding[];
+  if (cache.terms?.hash === termsKey) {
+    for (const run of cache.terms.runs) {
+      start(run.agent);
+      complete(run, run.inputHash, true);
+    }
+    termFindings = cache.terms.findings;
+  } else {
+    start(termsAgents[0]);
+    const research = await runResearch(c);
+    complete(research.run, termsKey);
+
+    start(termsAgents[1]);
+    const review = await runReview(research.candidates, c);
+    complete(review.run, hash([termsKey, research.candidates]));
+
+    start(termsAgents[2]);
+    const verified = runVerify(review.findings, c);
+    complete(verified.run, hash([termsKey, review.findings]));
+    termFindings = verified.findings;
+    const termRuns = [research.run, review.run, verified.run].map((run) =>
+      runs.find((trace) => trace.agent === run.agent) ?? run);
+    if (canReuseFallback || termRuns.every((run) => run.status === "done")) {
+      cache.terms = { hash: termsKey, findings: termFindings, runs: termRuns };
+    }
+  }
+
+  const verifyFacts = c.facts.filter((f) =>
+    (f.key === "delivery_estimate_in_order" && termFindings.some((x) => x.riskCategory === "DELIVERY_UNCLEAR")) ||
+    (f.key === "chat_context" && termFindings.some((x) => x.riskCategory === "SUBSTITUTION_DISPUTE")));
+  const pass2Key = hash(["verify-v2", corpusHash, model, termFindings, verifyFacts]);
+  start("verify_p2");
+  const cachedPass2 = cache.pass2?.hash === pass2Key ? cache.pass2 : undefined;
+  const p2 = cachedPass2 ?? await runVerifyPass2(termFindings, c);
+  complete(p2.run, pass2Key, !!cachedPass2);
+  if (!cachedPass2 && (canReuseFallback || p2.run.status === "done")) {
+    cache.pass2 = { hash: pass2Key, findings: p2.findings, run: p2.run };
+  }
+
+  const id = "run_" + randomUUID();
+  const evidenceHash = hash(c.evidence.map(({ id, kind, sha256, pages }) => [id, kind, sha256, pages]));
   const snapshot: PipelineRunSnapshot = {
-    id: thisRunId,
+    id,
     parentRunId,
     status: "completed",
-    inputManifestHash: sha(th + factsHash(c) + evidenceHash(c)).slice(0, 16),
-    stageHashes: Object.fromEntries(runs.map((r) => [r.agent, r.inputHash])),
-    reusedStages,
-    recomputedStages,
+    inputManifestHash: hash([intake.run.inputHash, factsHash, evidenceHash, roadmapHash, pass2Key]),
+    stageHashes: { ...Object.fromEntries(runs.map((r) => [r.agent, r.inputHash])), routes: roadmapHash },
+    reusedStages: [...reusedStages, ...(reuseRoadmap ? ["routes"] : [])],
+    recomputedStages: [...recomputedStages, ...(reuseRoadmap ? [] : ["routes"])],
     roadmap,
-    findings,
-    createdAt: new Date().toISOString(),
-    latencyMs: runs.reduce((s, r) => s + r.ms, 0),
+    findings: p2.findings,
+    createdAt: now.toISOString(),
+    latencyMs: Date.now() - now.getTime(),
   };
+  if (c.analysis && hash(c.analysis.findings) !== hash(p2.findings)) c.approvedAt = undefined;
   c.runs = [...(c.runs ?? []).slice(-9), snapshot];
-  c.activeRunId = thisRunId;
-
-  const analysis: Analysis = {
-    findings,
+  c.activeRunId = id;
+  c.analysis = {
+    findings: p2.findings,
     positions: buildPositions(c),
-    counterpoints,
+    counterpoints: p2.findings.map((f) => ({ findingId: f.id, text: f.counterpoint })),
     runs,
-    evidenceHash: evidenceHash(c),
-    factsHash: factsHash(c),
-    runId: thisRunId,
+    evidenceHash,
+    factsHash,
+    runId: id,
     baseRunId: parentRunId,
-    createdAt: new Date().toISOString(),
+    createdAt: now.toISOString(),
   };
-  c.analysis = analysis;
   return c;
 }

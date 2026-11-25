@@ -61,12 +61,10 @@ export function PrivacyDrawer({
   }
 
   function downloadJson() {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `ainpath-${data.id}.json`;
+    a.href = "/api/cases/" + data.id + "/data";
+    a.download = "ainpath-" + data.id + ".json";
     a.click();
-    URL.revokeObjectURL(a.href);
   }
 
   return (

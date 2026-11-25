@@ -157,8 +157,8 @@ export const en = {
   consent: {
     title: "Before we continue",
     lead: "AinPath reads your story and documents to draft next steps. It is not a law firm and never files for you.",
-    local: "Local only (this device / laptop)",
-    cloud: "Cloud processing (regional — Mumbai asia-south1)",
+    local: "Local processing (case text stays on the AinPath server)",
+    cloud: "Cloud AI (Groq may process redacted case text outside Bangladesh)",
     retention: "Keep my case for",
     days1: "24 hours",
     days7: "7 days",
@@ -667,8 +667,8 @@ export const bn: Dict = {
   consent: {
     title: "এগোনোর আগে",
     lead: "আইনপথ আপনার গল্প ও নথি পড়ে পরের ধাপের খসড়া করে। এটি আইন ফার্ম নয় এবং আপনার হয়ে জমা দেয় না।",
-    local: "শুধু লোকাল (এই ডিভাইস / ল্যাপটপ)",
-    cloud: "ক্লাউড প্রসেসিং (রিজিওনাল — মুম্বাই asia-south1)",
+    local: "লোকাল প্রসেসিং (কেসের লেখা আইনপথ সার্ভারে থাকে)",
+    cloud: "ক্লাউড এআই (গোপনীয় তথ্য সরানো কেসের লেখা Groq বাংলাদেশের বাইরে প্রক্রিয়া করতে পারে)",
     retention: "কেস রাখার সময়",
     days1: "২৪ ঘণ্টা",
     days7: "৭ দিন",

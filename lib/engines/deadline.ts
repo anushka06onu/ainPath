@@ -14,12 +14,15 @@ import type {
   Roadmap,
 } from "../types";
 
+import { isCalendarDate } from "../extract";
+
+const bdDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit" });
 const DAY = 86400000;
 export const addDaysIso = (iso: string, n: number) =>
   new Date(new Date(iso + "T00:00:00Z").getTime() + n * DAY).toISOString().slice(0, 10);
 export const daysBetween = (a: string, b: string) =>
   Math.round((new Date(b + "T00:00:00Z").getTime() - new Date(a + "T00:00:00Z").getTime()) / DAY);
-export const todayIso = (now = new Date()) => now.toISOString().slice(0, 10);
+export const todayIso = (now = new Date()) => bdDay.format(now);
 
 const fact = (c: CaseRecord, k: FactKey): Fact | undefined => c.facts.find((f) => f.key === k);
 
@@ -89,8 +92,8 @@ function computed(
   };
 }
 
-function triggerOk(f: Fact | undefined): f is Fact & { value: string } {
-  return !!f?.value && f.status === "confirmed";
+function triggerOk(f: Fact | undefined, now: Date): f is Fact {
+  return !!f?.value && f.status === "confirmed" && isCalendarDate(f.value) && f.value <= todayIso(now);
 }
 
 function conflictRefuse(
@@ -128,7 +131,7 @@ export function buildDeadlineClocks(c: CaseRecord, now = new Date()): DeadlineCl
     const name: Bi = { en: "Marketplace return (14 days)", bn: "মার্কেটপ্লেস রিটার্ন (১৪ দিন)" };
     if (alt && delivery?.value && alt.value !== delivery.value && delivery.status !== "confirmed") {
       clocks.push(conflictRefuse("DARAZ_RETURN_14D", name, "DARAZ-RETURN", delivery, alt));
-    } else if (!triggerOk(delivery)) {
+    } else if (!triggerOk(delivery, now)) {
       clocks.push(
         refused(
           "DARAZ_RETURN_14D",
@@ -156,7 +159,7 @@ export function buildDeadlineClocks(c: CaseRecord, now = new Date()): DeadlineCl
     const name: Bi = { en: "CRPA s.60 complaint (30 days)", bn: "সিআরপিএ ধারা ৬০ অভিযোগ (৩০ দিন)" };
     if (alt && delivery?.value && alt.value !== delivery.value && delivery.status !== "confirmed") {
       clocks.push(conflictRefuse("CRPA_S60_30D", name, "CRPA-60", delivery, alt));
-    } else if (!triggerOk(delivery)) {
+    } else if (!triggerOk(delivery, now)) {
       clocks.push(
         refused(
           "CRPA_S60_30D",
@@ -217,7 +220,7 @@ export function buildDeadlineClocks(c: CaseRecord, now = new Date()): DeadlineCl
   // ——— Payment overlays ———
   if (pay === "CARD_DEBIT_CREDIT") {
     const name: Bi = { en: "Card chargeback (60–120 days)", bn: "কার্ড চার্জব্যাক (৬০–১২০ দিন)" };
-    if (!triggerOk(delivery)) {
+    if (!triggerOk(delivery, now)) {
       clocks.push(
         refused(
           "CARD_CHARGEBACK",

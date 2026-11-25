@@ -1,5 +1,5 @@
-import { fail, type Ctx } from "@/lib/api";
-import { HttpError, requireCase } from "@/lib/cases";
+import { fail, noStore, type Ctx } from "@/lib/api";
+import { HttpError, requireCase, requireConsent } from "@/lib/cases";
 import { buyerDraft, evidenceIndex, memo, render } from "@/lib/export";
 import { buildCasePdf } from "@/lib/pdf-report";
 import type { Lang } from "@/lib/types";
@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 export async function GET(req: Request, { params }: Ctx) {
   try {
     const c = await requireCase((await params).id);
-    if (!c.approvedAt) throw new HttpError(403, "not-approved");
+    requireConsent(c);
+    if (!c.approvedAt || !c.analysis) throw new HttpError(403, "not-approved");
     const u = new URL(req.url).searchParams;
     const type = u.get("type") ?? "report";
     const format = u.get("format") ?? "pdf";
@@ -18,7 +19,8 @@ export async function GET(req: Request, { params }: Ctx) {
     const redact = u.get("redact") !== "0";
     const sel = u.get("attach");
     const selected = sel ? sel.split(",").filter(Boolean) : null;
-    if (format === "pdf" || type === "report") {
+    if (!["memo", "buyer", "index", "report"].includes(type)) throw new HttpError(400, "bad-type");
+    if (format === "pdf") {
       const pdf = await buildCasePdf(c, lang, redact);
       const inline = u.get("download") === "0";
       return new Response(new Uint8Array(pdf), {
@@ -27,7 +29,7 @@ export async function GET(req: Request, { params }: Ctx) {
           "content-disposition": inline
             ? `inline; filename="ainpath-report-${c.id}.pdf"`
             : `attachment; filename="ainpath-report-${c.id}.pdf"`,
-          "cache-control": "no-store",
+          ...noStore,
         },
       });
     }
@@ -45,6 +47,7 @@ export async function GET(req: Request, { params }: Ctx) {
     const body = render(blocks, format, lang, `AinPath ${type}`);
     return new Response(body, {
       headers: {
+        ...noStore,
         "content-type":
           format === "md" ? "text/markdown; charset=utf-8" : "text/html; charset=utf-8",
         ...(download

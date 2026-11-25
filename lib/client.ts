@@ -1,3 +1,4 @@
+import type { DiffResult } from "./engines/diff";
 import type {
   CaseView,
   Channel,
@@ -63,16 +64,13 @@ export async function recordConsent(
 export async function getCaseDiff(
   id: string,
   baseRunId?: string,
-  targetRunId?: string
-): Promise<{
-  reusedStages: string[];
-  recomputedStages: string[];
-  routeChanges: unknown[];
-  findingChanges: unknown[];
-}> {
+  targetRunId?: string,
+  lang?: Lang,
+): Promise<DiffResult> {
   const q = new URLSearchParams();
   if (baseRunId) q.set("base_run_id", baseRunId);
   if (targetRunId) q.set("target_run_id", targetRunId);
+  if (lang) q.set("lang", lang);
   return parse(await fetch(`/api/cases/${id}/diff?${q}`));
 }
 

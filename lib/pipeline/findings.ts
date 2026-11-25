@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Authority, Bi, CaseRecord, Evidence, Finding, AgentRun } from "../types";
 import { llmInfo, llmJson, LLMError, sha, UNTRUSTED_NOTE } from "../llm";
-import { findQuotePage, normForMatch } from "../extract";
+import { normForMatch, usableEvidenceText } from "../extract";
 import { allAuthorities, getAuthority, searchAuthorities } from "../db";
 
 export interface TermPage {
@@ -14,7 +14,7 @@ export function termPages(c: CaseRecord): TermPage[] {
   const out: TermPage[] = [];
   for (const e of c.evidence.filter((x) => x.kind === "terms"))
     for (const p of e.pages) {
-      const lines = p.text
+      const lines = usableEvidenceText(p.text)
         .split(/\r?\n/)
         .map((l) => l.trim())
         .filter((l) => l && !/^page \d+ of \d+$/i.test(l))
@@ -26,7 +26,7 @@ export function termPages(c: CaseRecord): TermPage[] {
 }
 
 export const termsHash = (c: CaseRecord) =>
-  sha(termPages(c).map((p) => p.text).join("|")).slice(0, 12);
+  sha(JSON.stringify(termPages(c)));
 
 const sentences = (t: string) => t.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
 
@@ -42,6 +42,7 @@ type Anchor = { evidenceId: string; page: number; quote: string };
 interface Template {
   id: string;
   authorityId: string;
+  category: NonNullable<Finding["riskCategory"]>;
   authorityQuote: string;
   title: Bi;
   risk: (a: Anchor, b?: Anchor) => Bi;
@@ -53,6 +54,7 @@ interface Template {
 const TEMPLATES: Template[] = [
   {
     id: "delivery",
+    category: "DELIVERY_UNCLEAR",
     authorityId: "DCOG-3.1.2",
     authorityQuote: "state their terms clearly to the buyer, including delivery terms and timeframes",
     title: { en: "Delivery timeline is unclear", bn: "ডেলিভারির সময়সীমা স্পষ্ট নয়" },
@@ -75,6 +77,7 @@ const TEMPLATES: Template[] = [
   },
   {
     id: "marketing",
+    category: "PRIVACY_CONSENT",
     authorityId: "DCOG-3.1.7",
     authorityQuote: "must obtain prior permission and must state why the information is collected",
     title: { en: "Marketing reuse of contact details is unclear", bn: "যোগাযোগের তথ্য প্রচারে ব্যবহার অস্পষ্ট" },
@@ -97,6 +100,7 @@ const TEMPLATES: Template[] = [
   },
   {
     id: "warranty",
+    category: "WARRANTY_CONFLICT",
     authorityId: "CRPA-44",
     authorityQuote: "deceives any buyer by any false or untrue advertisement",
     title: { en: "Warranty representations conflict", bn: "ওয়ারেন্টি সংক্রান্ত বক্তব্যে অসঙ্গতি" },
@@ -131,6 +135,7 @@ export function baselineFindings(c: CaseRecord): Finding[] {
       id: `F-${id}`,
       title: t.title,
       risk: t.risk(a, b),
+      riskCategory: t.category,
       anchor: a,
       secondAnchor: b ?? undefined,
       authorityIds: [t.authorityId],
@@ -146,11 +151,11 @@ export function baselineFindings(c: CaseRecord): Finding[] {
 
   const disp = findSentence(pages, /dispatch.*within|within.*\bdays?\b/i);
   const deliv = findSentence(pages, /delivery time depends|delivered through|courier/i);
-  if (deliv && !/\d/.test(deliv.quote) && (disp || deliv)) out.push(mk("delivery", disp ?? deliv, disp ? deliv : undefined));
+  if (disp && deliv && disp.quote !== deliv.quote && !/\d/.test(deliv.quote)) out.push(mk("delivery", disp, deliv));
 
   const coll = findSentence(pages, /we collect.*(phone|contact|name|address)/i);
   const share = findSentence(pages, /(share|disclose).*(contact|details|information).*(partners|third)|promotional offers/i);
-  if (share) out.push(mk("marketing", coll ?? share, coll ? share : undefined));
+  if (coll && share && coll.quote !== share.quote) out.push(mk("marketing", coll, share));
 
   const adv = findSentence(pages, /manufacturer warranty/i);
   const lim = findSentence(pages, /warranty service is available only|only at the .*repair/i);
@@ -158,28 +163,23 @@ export function baselineFindings(c: CaseRecord): Finding[] {
   return out;
 }
 
-const PAGE = z.preprocess((v) => {
-  const n = parseInt(String(v ?? "").match(/\d+/)?.[0] ?? "", 10);
-  return Number.isNaN(n) ? undefined : n;
-}, z.number().optional());
+const SourceQuote = z.object({
+  evidence_id: z.string(),
+  page: z.coerce.number().int().positive(),
+  quote: z.string().trim().min(12).max(700),
+});
 
 const ResearchSchema = z.object({
-  findings: z
-    .array(
-      z.object({
-        title_en: z.string(),
-        title_bn: z.string(),
-        risk_en: z.string(),
-        risk_bn: z.string(),
-        anchor_page: PAGE,
-        anchor_quote: z.string(),
-        second_page: PAGE,
-        second_quote: z.string().nullish(),
-        authority_id: z.string(),
-        authority_quote: z.string(),
-      })
-    )
-    .max(6),
+  findings: z.array(z.object({
+    title_en: z.string().trim().min(1).max(160),
+    title_bn: z.string().trim().min(1).max(160),
+    risk_en: z.string().trim().min(1).max(650),
+    risk_bn: z.string().trim().min(1).max(650),
+    anchor: SourceQuote,
+    second_anchor: SourceQuote.nullish(),
+    authority_id: z.string(),
+    authority_quote: z.string().trim().min(12).max(350),
+  })).max(6),
 });
 
 const ReviewSchema = z.object({
@@ -200,8 +200,7 @@ async function withRetry<T>(call: (hint?: string) => Promise<unknown>, schema: z
   try {
     return schema.parse(await call());
   } catch (e) {
-    if (e instanceof LLMError && ["no-key", "network"].includes(e.message)) throw e;
-    if (process.env.AINPATH_DEBUG) console.error("[llm-retry]", e instanceof z.ZodError ? JSON.stringify(e.issues.slice(0, 3)) : String(e));
+    if (e instanceof LLMError && e.message !== "bad-json") throw e;
     // one structured retry, with the failure named
     return schema.parse(await call("Your previous output was invalid JSON for the required schema. Return only the schema."));
   }
@@ -228,7 +227,7 @@ export async function runResearch(c: CaseRecord): Promise<ResearchOut> {
   const pages = termPages(c);
   const auths = retrieve(c);
   const base = baselineFindings(c);
-  const info = llmInfo();
+  const info = llmInfo(c);
   const hash = termsHash(c);
   let candidates: Finding[] = [];
   let status: AgentRun["status"] = "done";
@@ -242,50 +241,72 @@ export async function runResearch(c: CaseRecord): Promise<ResearchOut> {
     };
   }
 
-  try {
-    const authText = auths.map((a) => `[${a.id}] (${a.textKind}) ${a.passage}`).join("\n");
-    const docText = pages.map((p) => `--- page ${p.page} ---\n${p.text}`).join("\n");
-    const out = await withRetry(
-      (hint) =>
-        llmJson<unknown>({
-          system: `You are a legal-compliance analyst reviewing a seller's Terms of Sale for Bangladesh. ${UNTRUSTED_NOTE}
-Find distinct, grounded compliance RISKS in the terms (not conclusions of breach), at most one per authority, so at most 3 in total. Look for: unclear or missing delivery timeframes, personal data collected for one purpose but used for another, and advertised promises that other clauses limit. Quote only what the terms really say. For each, quote verbatim sentences from the terms (anchor_quote, and second_quote when two clauses conflict) and cite exactly one authority from the list by id, quoting a verbatim phrase from that authority's passage (authority_quote). Never invent quotes or authority ids. Write each title and risk in both English and Bangla (1–2 sentences).
-Return JSON: {"findings":[{"title_en","title_bn","risk_en","risk_bn","anchor_page","anchor_quote","second_page","second_quote","authority_id","authority_quote"}]}. ${hint ?? ""}`,
-          user: `AUTHORITIES:\n${authText}\n\n<document>\n${docText}\n</document>`,
+  if (info.enabled) {
+    try {
+      const authText = auths.map((a) => ({ id: a.id, textKind: a.textKind, passage: a.passage }));
+      const excerpts: { evidence_id: string; page: number; text: string }[] = [];
+      let remaining = 32_000;
+      for (const p of pages) {
+        if (remaining <= 0) break;
+        const text = p.text.slice(0, Math.min(3500, remaining));
+        remaining -= text.length;
+        excerpts.push({ evidence_id: p.evidenceId, page: p.page, text });
+      }
+      const out = await withRetry(
+        (hint) => llmJson<unknown>(c, {
+          system: "Review online-shopping terms for possible delivery, privacy and warranty risks in Bangladesh. " +
+            UNTRUSTED_NOTE + " Distinguish possible risks from legal conclusions. " +
+            " Cite only the supplied authorities and quote both policy passages and uploaded clauses verbatim. " +
+            " Locate each quote by exact evidence_id and page. Include a second anchor for conflicting clauses. " +
+            ' Return {"findings":[{"title_en","title_bn","risk_en","risk_bn","anchor":{"evidence_id","page","quote"},' +
+            '"second_anchor":{"evidence_id","page","quote"} or null,"authority_id","authority_quote"}]}. ' + (hint ?? ""),
+          user: JSON.stringify({ authorities: authText, evidence: excerpts }),
+          timeoutMs: 7_000,
         }),
-      ResearchSchema
-    );
-    candidates = out.findings.map((f, i) => ({
-      id: `F-m${i + 1}`,
-      title: { en: f.title_en, bn: f.title_bn || f.title_en },
-      risk: { en: f.risk_en, bn: f.risk_bn || f.risk_en },
-      anchor: { evidenceId: pages[0].evidenceId, page: f.anchor_page ?? 1, quote: f.anchor_quote },
-      secondAnchor: f.second_quote ? { evidenceId: pages[0].evidenceId, page: f.second_page ?? f.anchor_page ?? 1, quote: f.second_quote } : undefined,
-      authorityIds: [f.authority_id],
-      authorityQuote: f.authority_quote,
-      counterpoint: { en: "", bn: "" },
-      assumptions: { en: "", bn: "" },
-      nextCheck: { en: "", bn: "" },
-      status: "unresolved",
-      statusReason: { en: "Not yet verified.", bn: "এখনো যাচাই হয়নি।" },
-      origin: "model",
-    }));
-  } catch (e) {
+        ResearchSchema,
+      );
+      const toAnchor = (a: z.infer<typeof SourceQuote>): Anchor => ({ evidenceId: a.evidence_id, page: a.page, quote: a.quote });
+      candidates = out.findings.flatMap((f): Finding[] => {
+        const a = auths.find((authority) => authority.id === f.authority_id);
+        const anchor = toAnchor(f.anchor);
+        const second = f.second_anchor ? toAnchor(f.second_anchor) : undefined;
+        if (!a || normForMatch(f.authority_quote).length < 12 || !normForMatch(a.passage).includes(normForMatch(f.authority_quote)) ||
+          !checkAnchor(c.evidence, anchor) || (second && !checkAnchor(c.evidence, second))) return [];
+        return [{
+          id: "F-" + a.id,
+          title: { en: f.title_en, bn: f.title_bn },
+          risk: { en: f.risk_en, bn: f.risk_bn },
+          anchor,
+          secondAnchor: second,
+          authorityIds: [a.id],
+          authorityQuote: f.authority_quote,
+          counterpoint: { en: "", bn: "" },
+          assumptions: { en: "", bn: "" },
+          nextCheck: { en: "", bn: "" },
+          status: "unresolved",
+          statusReason: { en: "Not yet verified.", bn: "এখনো যাচাই হয়নি।" },
+          origin: "model",
+        }];
+      });
+      note = candidates.length + " grounded model candidates of " + out.findings.length;
+    } catch (e) {
+      status = "fallback";
+      note = e instanceof LLMError ? e.message : "invalid-output";
+    }
+  } else {
     status = "fallback";
-    note = e instanceof LLMError ? e.message : "invalid-output";
+    note = "model-disabled";
   }
 
-  // One finding per authority. The rules detectors quote both conflicting clauses, so they are
-  // preferred where they fire; a model finding on the same authority corroborates it. Model-only
-  // findings are kept for authorities the detectors do not cover, after verification.
   const byAuth = new Map<string, Finding>();
   for (const b of base) {
-    const m = candidates.find((x) => x.authorityIds[0] === b.authorityIds[0]);
+    const m = candidates.find((candidate) => candidate.authorityIds[0] === b.authorityIds[0] &&
+      candidate.anchor.evidenceId === b.anchor.evidenceId && candidate.anchor.page === b.anchor.page &&
+      normForMatch(candidate.anchor.quote) === normForMatch(b.anchor.quote));
     byAuth.set(b.authorityIds[0], m ? { ...b, origin: "both" } : b);
   }
   for (const m of candidates) if (!byAuth.has(m.authorityIds[0])) byAuth.set(m.authorityIds[0], m);
   const all = [...byAuth.values()].slice(0, 4);
-  const add = base.filter((b) => !candidates.some((x) => x.authorityIds[0] === b.authorityIds[0]));
   return {
     candidates: all,
     retrieved: auths.map((a) => a.id),
@@ -295,7 +316,7 @@ Return JSON: {"findings":[{"title_en","title_bn","risk_en","risk_bn","anchor_pag
       model: status === "fallback" ? "rules" : info.model,
       inputHash: hash,
       ms: Date.now() - t0,
-      note: note ?? `model-found:${candidates.length}${add.length ? ` rules-filled:${add.map((a) => a.id).join(",")}` : ""}`,
+      note,
       at: new Date().toISOString(),
     },
   };
@@ -306,31 +327,44 @@ export async function runReview(
   c: CaseRecord
 ): Promise<{ findings: Finding[]; run: AgentRun }> {
   const t0 = Date.now();
-  const info = llmInfo();
+  const info = llmInfo(c);
   let status: AgentRun["status"] = "done";
   let note: string | undefined;
   const needs = findings;
   const byId = new Map<string, z.infer<typeof ReviewSchema>["reviews"][number]>();
 
-  if (needs.length) {
+  if (needs.length && info.enabled) {
     try {
-      const body = needs
-        .map((f) => `id=${f.id}\nrisk: ${f.risk.en}\nclause: "${f.anchor.quote}"${f.secondAnchor ? `\nclause 2: "${f.secondAnchor.quote}"` : ""}\nauthority ${f.authorityIds[0]}: ${getAuthority(f.authorityIds[0])?.passage ?? ""}`)
-        .join("\n\n");
+      const body = needs.map((f) => ({
+        id: f.id,
+        risk: f.risk.en,
+        clauses: [f.anchor.quote, f.secondAnchor?.quote].filter(Boolean),
+        authority: getAuthority(f.authorityIds[0])?.passage,
+      }));
       const out = await withRetry(
         (hint) =>
-          llmJson<unknown>({
+          llmJson<unknown>(c, {
             system: `You are a sceptical reviewer. For each finding, give the strongest counterargument or exception, the assumptions the finding rests on, and the next fact to check. Do not remove the finding. Each field in English and Bangla, one or two sentences. ${UNTRUSTED_NOTE}
 Return JSON {"reviews":[{"id","counterpoint_en","counterpoint_bn","assumptions_en","assumptions_bn","next_check_en","next_check_bn"}]}. ${hint ?? ""}`,
-            user: `<document>\n${body}\n</document>`,
+            user: JSON.stringify(body),
+            timeoutMs: 7_000,
           }),
         ReviewSchema
       );
       out.reviews.forEach((r) => byId.set(r.id, r));
+      if (needs.some((f) => !byId.has(f.id))) {
+        status = "fallback";
+        note = "incomplete-review";
+      }
     } catch (e) {
       status = "fallback";
       note = e instanceof LLMError ? e.message : "invalid-output";
     }
+  }
+
+  if (needs.length && !info.enabled) {
+    status = "fallback";
+    note = "model-disabled";
   }
 
   const done = findings.map((f) => {
@@ -356,53 +390,45 @@ Return JSON {"reviews":[{"id","counterpoint_en","counterpoint_bn","assumptions_e
     }
     return f;
   });
-  void c;
   return {
     findings: done,
     run: { agent: "review", status, model: status === "fallback" ? "rules" : info.model, inputHash: sha(findings.map((f) => f.id + f.anchor.quote).join()).slice(0, 12), ms: Date.now() - t0, note, at: new Date().toISOString() },
   };
 }
 
-function checkAnchor(ev: Evidence[], a: Anchor | undefined, termPagesList: TermPage[]): { ok: boolean; anchor?: Anchor } {
-  if (!a) return { ok: true };
-  const terms = ev.filter((e) => e.kind === "terms");
-  for (const e of terms) {
-    const p = findQuotePage(e.pages, a.quote);
-    if (p) return { ok: true, anchor: { evidenceId: e.id, page: p, quote: a.quote } };
-  }
-  void termPagesList;
-  return { ok: false };
+function checkAnchor(ev: Evidence[], anchor: Anchor): boolean {
+  const evidence = ev.find((e) => e.kind === "terms" && e.id === anchor.evidenceId);
+  const page = evidence?.pages.find((p) => p.page === anchor.page);
+  const quote = normForMatch(anchor.quote);
+  return !!page && quote.length >= 12 && normForMatch(usableEvidenceText(page.text)).includes(quote);
 }
 
 export function runVerify(findings: Finding[], c: CaseRecord): { findings: Finding[]; run: AgentRun } {
   const t0 = Date.now();
-  const tp = termPages(c);
   const seen = new Set<string>();
   const out: Finding[] = [];
   for (const f of findings) {
     const reasons: Bi[] = [];
-    const a = checkAnchor(c.evidence, f.anchor, tp);
-    if (!a.ok) reasons.push({ en: "The quoted clause was not found in the uploaded terms.", bn: "উদ্ধৃত ধারাটি আপলোড করা শর্তাবলিতে পাওয়া যায়নি।" });
-    const b = checkAnchor(c.evidence, f.secondAnchor, tp);
-    if (!b.ok) reasons.push({ en: "The second quoted clause was not found in the uploaded terms.", bn: "দ্বিতীয় উদ্ধৃত ধারাটি আপলোড করা শর্তাবলিতে পাওয়া যায়নি।" });
+    const a = checkAnchor(c.evidence, f.anchor);
+    if (!a) reasons.push({ en: "The quoted clause was not found in the uploaded terms.", bn: "উদ্ধৃত ধারাটি আপলোড করা শর্তাবলিতে পাওয়া যায়নি।" });
+    const b = !f.secondAnchor || checkAnchor(c.evidence, f.secondAnchor);
+    if (!b) reasons.push({ en: "The second quoted clause was not found in the uploaded terms.", bn: "দ্বিতীয় উদ্ধৃত ধারাটি আপলোড করা শর্তাবলিতে পাওয়া যায়নি।" });
     const auth = f.authorityIds[0] ? getAuthority(f.authorityIds[0]) : null;
     if (!auth) reasons.push({ en: "The cited authority does not exist in the pinned corpus.", bn: "উল্লেখিত কর্তৃপক্ষ পিন করা সংগ্রহে নেই।" });
-    else if (!normForMatch(auth.passage).includes(normForMatch(f.authorityQuote)) || f.authorityQuote.trim().length < 12)
+    else if (!normForMatch(auth.passage).includes(normForMatch(f.authorityQuote)) || normForMatch(f.authorityQuote).length < 12)
       reasons.push({ en: "The quoted authority text does not match the pinned passage.", bn: "উদ্ধৃত আইনি অংশ পিন করা অংশের সঙ্গে মেলেনি।" });
 
-    const key = f.authorityIds[0] + "|" + (a.anchor?.quote ?? f.anchor.quote);
+    const key = f.authorityIds[0] + "|" + normForMatch(f.anchor.quote);
     if (seen.has(key)) continue;
     seen.add(key);
 
     if (reasons.length) {
       out.push({ ...f, status: "unresolved", statusReason: reasons[0] });
     } else {
-      const para = auth!.textKind === "paraphrase";
+      const para = auth!.textKind === "paraphrase" || !!auth!.verifyRequired;
       out.push({
         ...f,
-        anchor: a.anchor ?? f.anchor,
-        secondAnchor: b.anchor ?? f.secondAnchor,
-        status: "verified",
+        status: para ? "review" : "verified",
         statusReason: para
           ? { en: "Quote and page match the uploaded terms. The authority text is a paraphrase; a reviewer should check it against the official source.", bn: "উদ্ধৃতি ও পৃষ্ঠা আপলোড করা শর্তাবলির সঙ্গে মিলেছে। আইনি অংশটি সারসংক্ষেপ; পর্যালোচক সরকারি উৎসের সঙ্গে মিলিয়ে নেবেন।" }
           : { en: "Quote and page match the uploaded terms, and the authority quote matches the pinned official text.", bn: "উদ্ধৃতি ও পৃষ্ঠা আপলোড করা শর্তাবলির সঙ্গে মিলেছে এবং আইনি উদ্ধৃতি পিন করা সরকারি পাঠের সঙ্গে মিলেছে।" },

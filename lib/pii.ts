@@ -1,24 +1,19 @@
-/**
- * PII redaction before logs / external LLM prompts (PDPA 2026 alignment).
- */
-const NID = /\b(?:\d{10}|\d{13}|\d{17})\b/g;
-const PHONE = /(?:\+?880|0)1[3-9]\d{8}\b/g;
-const CARD = /\b(?:\d{4}[-\s]?){3}\d{4}\b/g;
-const MFS = /\b(?:TrxID|TxnID|Transaction\s*ID)\s*[:=]?\s*[A-Z0-9]{8,}\b/gi;
+const ASCII_DIGITS = "0123456789";
+const BANGLA_DIGITS = "০১২৩৪৫৬৭৮৯";
+const NUMBER = /[0-9০-৯](?:[0-9০-৯ -]*[0-9০-৯])?/g;
+const EMAIL = /[\w.+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu;
+const PAYMENT_REFERENCE = /\b(?:TrxID|TxnID|Transaction\s*ID)\s*[:=]?\s*[A-Z0-9]{8,}\b/gi;
 
 export function redactPii(text: string): string {
   return text
-    .replace(CARD, (m) => `****${m.replace(/\D/g, "").slice(-4)}`)
-    .replace(PHONE, (m) => `***${m.slice(-4)}`)
-    .replace(NID, (m) => `NID-***${m.slice(-4)}`)
-    .replace(MFS, (m) => {
-      const digits = m.replace(/\W/g, "");
-      return `TrxID-***${digits.slice(-4)}`;
+    .replace(EMAIL, "[email removed]")
+    .replace(PAYMENT_REFERENCE, "[transaction reference removed]")
+    .replace(NUMBER, (value, offset: number, source: string) => {
+      const digits = value.replace(/[০-৯]/g, (d) => ASCII_DIGITS[BANGLA_DIGITS.indexOf(d)]).replace(/[^0-9]/g, "");
+      const phone = /^(?:880|0)1[3-9]\d{8}$/.test(digits);
+      if (phone) return "[phone removed]";
+      if ([10, 13, 16, 17].includes(digits.length)) return "[identifier removed]";
+      if (source[offset - 1] === "+" && digits.startsWith("880")) return "[phone removed]";
+      return value;
     });
-}
-
-export function countRedactions(original: string, redacted: string): number {
-  if (original === redacted) return 0;
-  // rough: count *** markers added
-  return (redacted.match(/\*{3}/g) ?? []).length;
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { AgentRun, CaseRecord, Evidence, Fact, FactKey } from "../types";
-import { llmInfo, llmJson, LLMError, sha, UNTRUSTED_NOTE } from "../llm";
-import { normalizeDigits } from "../extract";
+import type { AgentRun, CaseRecord, Evidence, Fact, FactKey, IntakeCandidate } from "../types";
+import { llmInfo, llmJson, LLMError, modelFingerprint, sha, UNTRUSTED_NOTE } from "../llm";
+import { isCalendarDate, normForMatch, normalizeDigits, usableEvidenceText } from "../extract";
 
 export const FACT_KEYS: FactKey[] = [
   "item_ordered",
@@ -17,27 +17,37 @@ export const FACT_KEYS: FactKey[] = [
 ];
 
 const DATE_KEYS: FactKey[] = ["order_date", "delivery_date"];
-const ISO = /^\d{4}-\d{2}-\d{2}$/;
-
 export type ChatContext = "address_confirmation" | "substitution_approval" | "unclear" | "none";
 
 export function classifyChat(text: string): ChatContext {
   const lines = text.split(/\r?\n/).map((l) => l.replace(/^\[[^\]]*\]\s*/, "").trim());
-  const AFF = /^(buyer|customer|ক্রেতা)\s*:\s*(yes|yeah|yep|ok|okay|sure|confirmed?|হ্যাঁ|জি|ঠিক আছে|হুম)\b/i;
-  const SUB = /(substitut|instead|out of stock|alternative|বিকল্প|স্টকে নেই)/i;
-  const ADDR = /(address|ঠিকানা)/i;
+  const speaker = /^([^:]{1,60}):\s*(.+)/u;
+  const buyer = /^(buyer|customer|ক্রেতা)$/iu;
+  const affirmative = /^(yes|yeah|yep|ok|okay|sure|confirm(?:ed)?|হ্যাঁ|জি|ঠিক আছে|হুম|hya|hae|thik ache)(?=$|[\s.,!?।])/iu;
+  const substitution = /substitut|instead|out of stock|alternative|বিকল্প|স্টকে নেই|bodole|onno model/i;
+  const address = /address|ঠিকানা|thikana/i;
   let sawAff = false;
-  let addr = false;
-  let sub = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (!AFF.test(lines[i])) continue;
-    sawAff = true;
-    const prev = lines.slice(Math.max(0, i - 2), i).join(" ");
-    if (SUB.test(prev)) sub = true;
-    else if (ADDR.test(prev)) addr = true;
+  let context: ChatContext = "none";
+  let previous = "";
+  for (const line of lines) {
+    const turn = line.match(speaker);
+    if (!turn) continue;
+    if (!buyer.test(turn[1].trim())) {
+      previous = turn[2];
+      continue;
+    }
+    if (affirmative.test(turn[2])) {
+      sawAff = true;
+      const sub = substitution.test(previous);
+      const addr = address.test(previous);
+      if (sub && addr) return "unclear";
+      const next = sub ? "substitution_approval" : addr ? "address_confirmation" : "none";
+      if (next !== "none" && context !== "none" && next !== context) return "unclear";
+      if (next !== "none") context = next;
+    }
+    previous = "";
   }
-  if (sub) return "substitution_approval";
-  if (addr) return "address_confirmation";
+  if (context !== "none") return context;
   return sawAff ? "unclear" : "none";
 }
 
@@ -45,29 +55,35 @@ const firstMatch = (t: string, re: RegExp) => t.match(re)?.[1]?.trim();
 const joined = (ev: Evidence[], kinds: Evidence["kind"][]) =>
   ev
     .filter((e) => kinds.includes(e.kind))
-    .map((e) => e.pages.map((p) => p.text).join("\n"))
+    .map((e) => e.pages.map((p) => usableEvidenceText(p.text)).join("\n"))
     .join("\n");
 const ids = (ev: Evidence[], kinds: Evidence["kind"][]) =>
   ev.filter((e) => kinds.includes(e.kind)).map((e) => e.id);
 
-type Cand = { value: string; evidenceIds: string[] };
+type Cand = IntakeCandidate;
 
 export function docFacts(c: CaseRecord): Partial<Record<FactKey, Cand>> {
   const ev = c.evidence;
   const out: Partial<Record<FactKey, Cand>> = {};
   const order = normalizeDigits(joined(ev, ["order"]));
   const delivery = normalizeDigits(joined(ev, ["delivery"]));
+  const deliveryDates = ev.filter((e) => e.kind === "delivery").flatMap((e) =>
+    [...normalizeDigits(joined([e], ["delivery"])).matchAll(/(?:Delivered|Delivery date|ডেলিভারির তারিখ|বিতরণের তারিখ)\s*[:：]\s*(\d{4}-\d{2}-\d{2})/giu)]
+      .filter((m) => isCalendarDate(m[1])).map((m) => ({ value: m[1], evidenceIds: [e.id] }))
+  );
   const rej = joined(ev, ["rejection"]);
   const chat = joined(ev, ["chat"]);
 
   const put = (k: FactKey, v: string | undefined, kinds: Evidence["kind"][]) => {
     if (v) out[k] = { value: v, evidenceIds: ids(ev, kinds) };
   };
-  put("item_ordered", firstMatch(order, /Item ordered:\s*(.+)/i), ["order"]);
-  put("seller", firstMatch(order, /Seller:\s*(.+)/i), ["order"]);
-  put("order_date", firstMatch(order, /Order date:\s*(\d{4}-\d{2}-\d{2})/i), ["order"]);
-  put("item_received", firstMatch(delivery, /Item delivered:\s*(.+)/i), ["delivery"]);
-  put("delivery_date", firstMatch(delivery, /Delivered:\s*(\d{4}-\d{2}-\d{2})/i), ["delivery"]);
+  put("item_ordered", firstMatch(order, /(?:Item ordered|অর্ডার করা পণ্য)[ \t]*[:：][ \t]*(.+)/iu), ["order"]);
+  put("seller", firstMatch(order, /(?:Seller|বিক্রেতা)[ \t]*[:：][ \t]*(.+)/iu), ["order"]);
+  const orderDate = firstMatch(order, /(?:Order date|অর্ডারের তারিখ)\s*[:：]\s*(\d{4}-\d{2}-\d{2})/iu);
+  if (orderDate && isCalendarDate(orderDate)) put("order_date", orderDate, ["order"]);
+  put("item_received", firstMatch(delivery, /(?:Item delivered|প্রাপ্ত পণ্য)[ \t]*[:：][ \t]*(.+)/iu), ["delivery"]);
+  out.delivery_date = deliveryDates[0];
+  out.delivery_date_alt = deliveryDates.find((d) => d.value !== deliveryDates[0].value);
 
   if (rej.trim()) {
     const reason = firstMatch(rej, /Reason:\s*(.+)/i) ?? rej;
@@ -81,7 +97,13 @@ export function docFacts(c: CaseRecord): Partial<Record<FactKey, Cand>> {
     out.rejection_reason = { value: cat, evidenceIds: ids(ev, ["rejection"]) };
     out.prior_action = { value: "platform_return_rejected", evidenceIds: ids(ev, ["rejection"]) };
   }
-  if (chat.trim()) out.chat_context = { value: classifyChat(chat), evidenceIds: ids(ev, ["chat"]) };
+  if (chat.trim()) {
+    const contexts = ev.filter((e) => e.kind === "chat")
+      .map((e) => ({ id: e.id, context: classifyChat(joined([e], ["chat"])) }))
+      .filter((entry) => entry.context !== "none");
+    const unique = new Set(contexts.map((entry) => entry.context));
+    out.chat_context = { value: unique.size > 1 ? "unclear" : contexts[0]?.context ?? "none", evidenceIds: contexts.map((entry) => entry.id) };
+  }
 
   const hasReceipt =
     ev.some((e) => e.kind === "receipt") || (c.channel === "daraz" && ev.some((e) => e.kind === "order"));
@@ -94,19 +116,22 @@ export function docFacts(c: CaseRecord): Partial<Record<FactKey, Cand>> {
   return out;
 }
 
-const StorySchema = z.object({
-  item_ordered: z.string().optional().default(""),
-  item_received: z.string().optional().default(""),
-  seller: z.string().optional().default(""),
-  order_date: z.string().optional().default(""),
-  delivery_date: z.string().optional().default(""),
-  rejection_reason: z.string().optional().default(""),
-  prior_action: z.string().optional().default(""),
-  has_receipt: z.string().optional().default(""),
-  chat_context: z.string().optional().default(""),
-});
+const ENUMS: Partial<Record<FactKey, string[]>> = {
+  rejection_reason: ["substitute_approved", "item_as_described", "outside_window", "other", "none"],
+  prior_action: ["none", "platform_return_rejected", "platform_return_pending", "seller_contacted"],
+  has_receipt: ["yes", "no"],
+  chat_context: ["address_confirmation", "substitution_approval", "unclear", "none"],
+  delivery_estimate_in_order: ["yes", "no"],
+};
 
-const enumOr = (v: string, allowed: string[]) => (allowed.includes(v) ? v : "");
+const IntakeSchema = z.object({
+  facts: z.array(z.object({
+    key: z.string(),
+    value: z.string().trim().min(1).max(300),
+    source: z.string().max(40),
+    quote: z.string().trim().min(5).max(500),
+  })).max(20),
+});
 
 function storyFallback(story: string): Record<string, string> {
   const o: Record<string, string> = {};
@@ -123,96 +148,112 @@ function storyFallback(story: string): Record<string, string> {
   return o;
 }
 
-async function storyFacts(c: CaseRecord): Promise<{ data: Record<string, string>; fallback: boolean; note?: string }> {
-  if (!c.story.trim()) return { data: {}, fallback: true };
-  try {
-    const raw = await llmJson<unknown>({
-      system: `You extract structured facts from a Bangladeshi consumer's account of a wrong-item delivery. ${UNTRUSTED_NOTE}
-Return JSON with exactly these string keys (use "" when not stated, never guess):
-item_ordered, item_received, seller, order_date (YYYY-MM-DD), delivery_date (YYYY-MM-DD),
-rejection_reason (one of: substitute_approved, item_as_described, outside_window, other, none),
-prior_action (one of: none, platform_return_rejected, platform_return_pending, seller_contacted),
-has_receipt (yes/no), chat_context (one of: address_confirmation, substitution_approval, unclear, none).`,
-      user: `<document>\n${c.story}\n</document>`,
-    });
-    const p = StorySchema.parse(raw);
-    return {
-      data: {
-        ...p,
-        rejection_reason: enumOr(p.rejection_reason, ["substitute_approved", "item_as_described", "outside_window", "other", "none"]),
-        prior_action: enumOr(p.prior_action, ["none", "platform_return_rejected", "platform_return_pending", "seller_contacted"]),
-        has_receipt: enumOr(p.has_receipt, ["yes", "no"]),
-        chat_context: enumOr(p.chat_context, ["address_confirmation", "substitution_approval", "unclear", "none"]),
-        order_date: ISO.test(p.order_date) ? p.order_date : "",
-        delivery_date: ISO.test(p.delivery_date) ? p.delivery_date : "",
-      },
-      fallback: false,
-    };
-  } catch (e) {
-    return { data: storyFallback(c.story), fallback: true, note: e instanceof LLMError ? e.message : "invalid-output" };
-  }
-}
+async function modelCandidates(c: CaseRecord) {
+  const sources = [
+    { id: "story", text: usableEvidenceText(c.story), evidenceIds: [] as string[] },
+    ...c.evidence.filter((e) => e.kind !== "terms").flatMap((e) =>
+      e.pages.map((p) => ({
+        id: e.id + ":" + p.page,
+        kind: e.kind,
+        text: usableEvidenceText(p.text).slice(0, 1800),
+        evidenceIds: [e.id],
+      }))),
+  ].filter((source) => source.text.trim()).slice(0, 16);
+  const hash = sha(JSON.stringify(["intake-v2", modelFingerprint(c), sources]));
+  const previous = c.pipelineCache?.intake;
+  if (previous?.hash === hash) return { ...previous, reused: true };
 
-function blank(key: FactKey): Fact {
-  return { key, value: "", status: "candidate", evidenceIds: [], source: "model" };
-}
-
-export async function runIntake(c: CaseRecord): Promise<{ facts: Fact[]; run: AgentRun }> {
   const t0 = Date.now();
-  const story = await storyFacts(c);
-  const docs = docFacts(c);
-  const prev = new Map(c.facts.map((f) => [f.key, f]));
-  const facts: Fact[] = [];
+  const info = llmInfo(c);
+  const candidates: Partial<Record<FactKey, Cand>> = {};
+  let note = sources.length ? "model-disabled" : "no-source-text";
+  let usedModel = false;
+  let reusable = !info.enabled || !sources.length;
 
-  for (const key of FACT_KEYS) {
-    const old = prev.get(key) ?? blank(key);
-    const d = docs[key];
-    const m = story.data[key] || "";
-    let f: Fact = { ...old };
-
-    if (old.source === "user" && old.value) {
-      // user edits always win; a differing document date becomes a recorded conflict
-      if (DATE_KEYS.includes(key) && d && d.value !== old.value) {
-        f = { ...old, evidenceIds: d.evidenceIds, status: old.status === "confirmed" ? "confirmed" : "disputed" };
-      } else if (d && d.value === old.value) {
-        f = { ...old, evidenceIds: d.evidenceIds };
+  if (info.enabled && sources.length) {
+    try {
+      const raw = await llmJson<unknown>(c, {
+        system: "Extract explicitly stated facts from an online-shopping dispute. Understand English, Bangla, and romanized Bangla. " + UNTRUSTED_NOTE +
+          " Output {\"facts\":[{\"key\",\"value\",\"source\",\"quote\"}]}. Quote a verbatim line from that exact source. " +
+          " Omit unmentioned values. Use YYYY-MM-DD only for unambiguous dates. Allowed keys: " + FACT_KEYS.join(", ") +
+          ". Allowed enum values: " + JSON.stringify(ENUMS) + ". Do not interpret an address confirmation as substitution approval.",
+        user: JSON.stringify(sources.map(({ id, text, ...rest }) => ({ id, text, kind: "kind" in rest ? rest.kind : "story" }))),
+      });
+      for (const fact of IntakeSchema.parse(raw).facts) {
+        if (!FACT_KEYS.includes(fact.key as FactKey)) continue;
+        const key = fact.key as FactKey;
+        const source = sources.find((entry) => entry.id === fact.source);
+        const quote = normForMatch(fact.quote);
+        if (!source || !quote || !normForMatch(source.text).includes(quote)) continue;
+        const value = normalizeDigits(fact.value);
+        const allowed = ENUMS[key];
+        if (allowed && !allowed.includes(value)) continue;
+        if (DATE_KEYS.includes(key) && (!isCalendarDate(value) || !quote.includes(value))) continue;
+        if (!allowed && !DATE_KEYS.includes(key) && !quote.includes(normForMatch(value))) continue;
+        const old = candidates[key];
+        if (old && old.evidenceIds.length >= source.evidenceIds.length) continue;
+        candidates[key] = { value, evidenceIds: source.evidenceIds };
       }
-    } else if (d) {
-      f = { key, value: d.value, status: old.status === "confirmed" && old.value === d.value ? "confirmed" : "candidate", evidenceIds: d.evidenceIds, source: "document" };
-      if (DATE_KEYS.includes(key) && m && m !== d.value) f.status = old.status === "confirmed" && old.value === d.value ? "confirmed" : "disputed";
-    } else if (m) {
-      f = { key, value: m, status: old.status === "confirmed" && old.value === m ? "confirmed" : "candidate", evidenceIds: [], source: "model" };
-    } else if (!old.value) {
-      f = blank(key);
-    }
-    facts.push(f);
-  }
-
-  // record the competing date so both are shown with their sources
-  for (const key of DATE_KEYS) {
-    const alt = key === "delivery_date" ? "delivery_date_alt" : null;
-    if (!alt) continue;
-    const main = facts.find((f) => f.key === key)!;
-    const other = story.data[key];
-    const d = docs[key]?.value;
-    const userVal = prev.get(key)?.source === "user" ? prev.get(key)!.value : "";
-    const candidates = [d, other, userVal].filter((v): v is string => !!v && ISO.test(v));
-    const diff = candidates.find((v) => v !== main.value);
-    if (diff) {
-      facts.push({ key: "delivery_date_alt", value: diff, status: "candidate", evidenceIds: [], source: d && diff === d ? "document" : "model" });
-      if (main.status !== "confirmed") main.status = "disputed";
+      usedModel = Object.keys(candidates).length > 0;
+      reusable = true;
+      note = Object.keys(candidates).length + " source-backed model candidates";
+    } catch (e) {
+      note = e instanceof LLMError ? e.message : "invalid-output";
     }
   }
 
-  const info = llmInfo();
+  for (const [key, value] of Object.entries(storyFallback(usableEvidenceText(c.story)))) {
+    candidates[key as FactKey] ??= { value, evidenceIds: [] };
+  }
   const run: AgentRun = {
     agent: "intake",
-    status: story.fallback && info.enabled ? "fallback" : story.fallback ? "fallback" : "done",
-    model: story.fallback ? "rules" : info.model,
-    inputHash: sha(c.story + c.evidence.map((e) => e.sha256).join()).slice(0, 12),
+    status: usedModel ? "done" : "fallback",
+    model: usedModel ? info.model : "rules",
+    inputHash: hash,
     ms: Date.now() - t0,
-    note: story.note,
+    note,
     at: new Date().toISOString(),
   };
-  return { facts, run };
+  if (reusable) (c.pipelineCache ??= {}).intake = { hash, candidates, run };
+  return { hash, candidates, run, reused: false };
+}
+
+export async function runIntake(c: CaseRecord): Promise<{ facts: Fact[]; run: AgentRun; reused: boolean }> {
+  const intake = await modelCandidates(c);
+  const docs = docFacts(c);
+  const previous = new Map(c.facts.map((f) => [f.key, f]));
+  const facts: Fact[] = [];
+  for (const key of FACT_KEYS) {
+    const old = previous.get(key);
+    const model = intake.candidates[key];
+    const doc = docs[key];
+    const candidate = doc?.value === "none" && key === "chat_context" && model?.evidenceIds.length
+      ? model : doc ?? model;
+    if (old?.source === "user") {
+      facts.push({ ...old });
+    } else if (candidate) {
+      const same = old?.value === candidate.value;
+      facts.push({
+        key, value: candidate.value, status: same && old ? old.status : "candidate",
+        evidenceIds: candidate.evidenceIds, source: candidate === doc ? "document" : "model",
+      });
+    } else if (old && ["disputed", "unreadable"].includes(old.status)) {
+      facts.push({ ...old });
+    } else {
+      facts.push({ key, value: "", status: "candidate", evidenceIds: [], source: "model" });
+    }
+  }
+
+  const delivery = facts.find((f) => f.key === "delivery_date")!;
+  const savedAlt = previous.get("delivery_date_alt");
+  const other = [docs.delivery_date, docs.delivery_date_alt, intake.candidates.delivery_date, savedAlt?.source === "user" ? savedAlt : undefined]
+    .find((candidate) => candidate && candidate.value !== delivery.value && isCalendarDate(candidate.value));
+  if (delivery.value && other) {
+    facts.push({
+      key: "delivery_date_alt", value: other.value, evidenceIds: other.evidenceIds, status: "candidate",
+      source: other === docs.delivery_date || other === docs.delivery_date_alt ? "document" : "model",
+    });
+    if (delivery.status !== "confirmed" && delivery.status !== "unreadable") delivery.status = "disputed";
+  }
+  return { facts, run: intake.run, reused: intake.reused };
 }

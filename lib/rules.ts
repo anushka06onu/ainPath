@@ -8,7 +8,7 @@ import type {
   Roadmap,
   RouteStep,
 } from "./types";
-import { normForMatch } from "./extract";
+import { normForMatch, usableEvidenceText } from "./extract";
 import { addDaysIso, buildDeadlineClocks, daysBetween, legacyDeadlineFromClocks, todayIso } from "./engines/deadline";
 import { paymentOverlaySteps } from "./engines/route-payment";
 
@@ -45,8 +45,7 @@ const ATT = {
   terms: { en: "The seller's Terms of Sale", bn: "বিক্রেতার বিক্রয়ের শর্তাবলি" },
 };
 
-export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
-  const clocks = buildDeadlineClocks(c, now);
+export function buildRoadmap(c: CaseRecord, now = new Date(), clocks = buildDeadlineClocks(c, now)): Roadmap {
   const dl = legacyDeadlineFromClocks(clocks);
   const steps: RouteStep[] = [];
   const chat = val(c, "chat_context");
@@ -292,7 +291,7 @@ export function buildRoadmap(c: CaseRecord, now = new Date()): Roadmap {
 }
 
 export function chatExcerpt(c: CaseRecord): string {
-  const chat = c.evidence.filter((e) => e.kind === "chat").map((e) => e.pages.map((p) => p.text).join("\n")).join("\n");
+  const chat = c.evidence.filter((e) => e.kind === "chat").map((e) => e.pages.map((p) => usableEvidenceText(p.text)).join("\n")).join("\n");
   const lines = chat.split(/\r?\n/).filter((l) => l.trim());
   const idx = lines.findIndex((l, i) => /Buyer\s*:\s*(yes|ok)/i.test(l) && i > 0 && /(substitut|instead|address|ঠিকানা)/i.test(lines[i - 1]));
   if (idx > 0) return `${lines[idx - 1]}\n${lines[idx]}`;
@@ -303,11 +302,18 @@ export function buildPositions(c: CaseRecord): Position[] {
   const chat = val(c, "chat_context");
   const excerpt = chatExcerpt(c);
   const ex: Bi = { en: excerpt, bn: excerpt };
-  const ordered = val(c, "item_ordered") || "Model A";
-  const received = val(c, "item_received") || "Model B";
-  const common: Bi = {
-    en: `Order records name "${ordered}"; the delivery record names "${received}".`,
-    bn: `অর্ডার রেকর্ডে "${ordered}"; ডেলিভারি রেকর্ডে "${received}"।`,
+  const ordered = val(c, "item_ordered");
+  const received = val(c, "item_received");
+  const support: Bi[] = [];
+  if (ordered && received) support.push({
+    en: "Case record lists the ordered item as " + ordered + " and the received item as " + received + ".",
+    bn: "কেস রেকর্ডে অর্ডার করা পণ্য " + ordered + " এবং পাওয়া পণ্য " + received + "।",
+  });
+  const chatSupport = excerpt ? [ex] : [];
+  const hasRejection = c.evidence.some((e) => e.kind === "rejection" && e.pages.some((p) => p.text.trim()));
+  const sellerClaim: Bi = {
+    en: "The seller may argue that the buyer accepted a substitute.",
+    bn: "বিক্রেতা দাবি করতে পারেন যে ক্রেতা বিকল্প গ্রহণ করেছেন।",
   };
 
   if (chat === "substitution_approval") {
@@ -315,7 +321,7 @@ export function buildPositions(c: CaseRecord): Position[] {
       {
         side: "buyer",
         claim: { en: "I did not knowingly agree to receive a different model.", bn: "আমি জেনেশুনে ভিন্ন মডেল নিতে রাজি হইনি।" },
-        support: [common],
+        support,
         missing: [
           { en: "Whether the offer clearly named the model and any price or warranty difference.", bn: "প্রস্তাবে মডেল এবং দাম বা ওয়ারেন্টির পার্থক্য স্পষ্ট ছিল কি না।" },
           { en: "Anything said by phone or in other chats.", bn: "ফোনে বা অন্য চ্যাটে কী বলা হয়েছিল।" },
@@ -325,7 +331,7 @@ export function buildPositions(c: CaseRecord): Position[] {
       {
         side: "seller",
         claim: { en: "The buyer approved the substitute when it was offered.", bn: "প্রস্তাবের সময় ক্রেতা বিকল্পটি অনুমোদন করেছেন।" },
-        support: [ex, { en: "The Terms (page 2) say a substitute is sent only if the buyer approves in writing.", bn: "শর্তাবলিতে (পৃষ্ঠা ২) বলা আছে ক্রেতা লিখিতভাবে অনুমোদন দিলেই বিকল্প পাঠানো হয়।" }],
+        support: chatSupport,
         missing: [{ en: "Proof the buyer saw which model would be sent.", bn: "কোন মডেল পাঠানো হবে তা ক্রেতা দেখেছেন তার প্রমাণ।" }],
         authorityIds: ["CRPA-45"],
       },
@@ -336,15 +342,15 @@ export function buildPositions(c: CaseRecord): Position[] {
       {
         side: "buyer",
         claim: { en: "My “yes” confirmed my delivery address. I never approved a substitute.", bn: "আমার “yes” ছিল ডেলিভারি ঠিকানা নিশ্চিত করতে। আমি কোনো বিকল্প অনুমোদন করিনি।" },
-        support: [common, ex],
-        missing: [{ en: "Whether the seller sent a separate message offering Model B that is not in this export.", bn: "এই এক্সপোর্টে নেই এমন আলাদা বার্তায় বিক্রেতা Model B-র প্রস্তাব দিয়েছিল কি না।" }],
+        support: [...support, ...chatSupport],
+        missing: [{ en: "Whether another message specifically offered the delivered model.", bn: "অন্য কোনো বার্তায় পাওয়া মডেলটির প্রস্তাব দেওয়া হয়েছিল কি না।" }],
         authorityIds: ["CRPA-45"],
       },
       {
         side: "seller",
-        claim: { en: "The buyer accepted a substitute.", bn: "ক্রেতা বিকল্প গ্রহণ করেছেন।" },
-        support: [{ en: "This is the seller's stated reason; it is the reason on the rejection record.", bn: "এটি বিক্রেতার বলা কারণ এবং বাতিলের রেকর্ডেও এই কারণই আছে।" }],
-        missing: [{ en: "A timestamped message that offers a substitute and a reply that answers it. None is in the uploaded chat.", bn: "বিকল্পের প্রস্তাব ও তার জবাবের সময়যুক্ত বার্তা। আপলোড করা চ্যাটে কোনোটিই নেই।" }],
+        claim: sellerClaim,
+        support: hasRejection && val(c, "rejection_reason") === "substitute_approved" ? [{ en: "The rejection record lists substitute approval as its reason.", bn: "বাতিলের নথিতে বিকল্প অনুমোদনকে কারণ দেখানো হয়েছে।" }] : [],
+        missing: [{ en: "A timestamped substitute offer and the buyer’s reply.", bn: "সময়সহ বিকল্পের প্রস্তাব ও ক্রেতার জবাব।" }],
         authorityIds: ["CRPA-45"],
       },
     ];
@@ -353,14 +359,14 @@ export function buildPositions(c: CaseRecord): Position[] {
     {
       side: "buyer",
       claim: { en: "I ordered one model and received another.", bn: "আমি এক মডেল অর্ডার করেছি, অন্যটি পেয়েছি।" },
-      support: [common],
+      support,
       missing: [{ en: "The full chat is needed to see what, if anything, was agreed.", bn: "কী সম্মতি হয়েছিল দেখতে পুরো চ্যাট দরকার।" }],
       authorityIds: ["CRPA-45"],
     },
     {
       side: "seller",
-      claim: { en: "The buyer accepted a substitute.", bn: "ক্রেতা বিকল্প গ্রহণ করেছেন।" },
-      support: [{ en: "Stated by the seller; not yet shown by an uploaded record.", bn: "বিক্রেতা বলেছেন; আপলোড করা কোনো রেকর্ডে এখনো দেখা যায়নি।" }],
+      claim: sellerClaim,
+      support: [],
       missing: [{ en: "The surrounding messages, with timestamps.", bn: "সময়সহ আশেপাশের বার্তাগুলো।" }],
       authorityIds: ["CRPA-45"],
     },

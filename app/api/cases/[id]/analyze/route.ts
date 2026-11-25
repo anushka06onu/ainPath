@@ -1,5 +1,5 @@
 import { fail, type Ctx } from "@/lib/api";
-import { requireCase, toView } from "@/lib/cases";
+import { HttpError, requireCase, requireConsent, toView } from "@/lib/cases";
 import { saveCase } from "@/lib/db";
 import { runPipeline } from "@/lib/pipeline";
 
@@ -10,6 +10,7 @@ export const maxDuration = 60;
 export async function POST(_r: Request, { params }: Ctx) {
   try {
     const c = await requireCase((await params).id);
+    requireConsent(c);
     const enc = new TextEncoder();
     const stream = new ReadableStream({
       async start(ctrl) {
@@ -18,8 +19,8 @@ export async function POST(_r: Request, { params }: Ctx) {
           await runPipeline(c, (e) => send(e));
           await saveCase(c);
           send({ done: true, case: toView(c) });
-        } catch {
-          send({ done: true, error: "pipeline-failed" });
+        } catch (error) {
+          send({ done: true, error: error instanceof HttpError ? error.message : "pipeline-failed" });
         }
         ctrl.close();
       },
